@@ -480,26 +480,16 @@ end)
 
 ---Validates file selection and extracts filenames
 ---@param operation_name string The name of the operation (for logging/notifications)
----@return string[]|nil, string[]|nil -- selected_paths, item_names (or nil if validation fails)
----@note The item_names return value is provided for backward compatibility but may not be used by all callers
+---@return string[]|nil -- selected_paths (or nil if validation fails)
 local function validate_and_get_selection(operation_name)
 	-- Get selected files from Yazi
 	local selected_paths = get_selected_files()
 	if #selected_paths == 0 then
 		Notify.warn("No files selected for " .. operation_name)
-		return nil, nil
+		return nil
 	end
-
 	debug("Selected paths for %s: %s", operation_name, table.concat(selected_paths, ", "))
-
-	-- Extract filenames for backward compatibility
-	local item_names = {}
-	for i, path in ipairs(selected_paths) do
-		local filename = path:match(PATTERNS.filename) or path
-		item_names[i] = filename
-	end
-
-	return selected_paths, item_names
+	return selected_paths
 end
 
 --=========== Batch Operations =================================================
@@ -742,11 +732,11 @@ local function cmd_restore_selection(config)
 	for i, path in ipairs(selected_paths) do
 		local filename = path:match(PATTERNS.filename) or path
 		local full_path = normalized_trash_files_dir .. filename
-		
+
 		-- Get file size
 		local bytes, size_err = get_file_size(full_path)
 		local formatted_size = size_err and "unknown size" or format_file_size(bytes)
-		
+
 		restore_items[i] = {
 			path = path,
 			name = filename,
@@ -774,7 +764,7 @@ local function cmd_restore_selection(config)
 
 	-- Execute batch operation
 	local success_count, failed_count = execute_batch_operation(restore_items, "restoring", restore_operation)
-	
+
 	-- Report results
 	report_operation_results("restoring", success_count, failed_count)
 end
