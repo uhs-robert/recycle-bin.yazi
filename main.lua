@@ -226,16 +226,24 @@ local function prompt(title, is_password, value)
 end
 
 ---Show a confirmation box.
----@param title AsLine
----@param body AsText?
+---@param title AsLine|table Confirmation title (string or structured ui.Line)
+---@param body AsText|table? Confirmation body (string or structured ui.Text)
 ---@return boolean
 local function confirm(title, body)
-	debug("Confirming user action for `%s`", title)
-	local answer = ya.confirm({
-		title = title,
-		body = body or "",
+	local title_str = type(title) == "string" and title or tostring(title)
+	debug("Confirming user action for `%s`", title_str)
+
+	local confirmation_data = {
+		title = ui.Line(title),
 		pos = { "center", w = 60, h = 10 },
-	})
+	}
+
+	if body then
+		confirmation_data.body = body
+		confirmation_data.content = body
+	end
+
+	local answer = ya.confirm(confirmation_data)
 	return answer
 end
 
@@ -367,30 +375,30 @@ end
 
 --=========== Batch Operations =================================================
 ---Shows standardized confirmation dialog for batch operations
----@param title string Dialog title
 ---@param verb string Action verb (e.g., "delete", "restore")
 ---@param items string[] List of item names
 ---@param warning string|nil Optional warning message
 ---@return boolean
-local function confirm_batch_operation(title, verb, items, warning)
-	local body_parts = {}
+local function confirm_batch_operation(verb, items, warning)
+	local title =
+		ui.Line(string.format("%s the following %d file(s):", verb:gsub(PATTERNS.upper_first, string.upper), #items))
+	-- Create structured UI components
+	local body_components = {}
 
-	-- Build body string
-	local body_parts_count = 1
-	body_parts[body_parts_count] = string.format(
-		"%s %d file(s) from trash:\n%s",
-		verb:gsub(PATTERNS.upper_first, string.upper),
-		#items,
-		table.concat(items, "\n")
-	)
+	-- Add each item as a formatted line
+	for _, item in ipairs(items) do
+		table.insert(body_components, ui.Line({ ui.Span(" "), ui.Span(item) }):align(ui.Align.LEFT))
+	end
 
 	-- Add warning if provided
 	if warning then
-		body_parts_count = body_parts_count + 1
-		body_parts[body_parts_count] = "\n" .. warning
+		table.insert(body_components, ui.Line(""))
+		table.insert(body_components, ui.Line(warning):style(th.notify.title_warn))
 	end
 
-	local confirmation = confirm(title, table.concat(body_parts, "", 1, body_parts_count))
+	local structured_body = ui.Text(body_components):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
+
+	local confirmation = confirm(title, structured_body)
 	if not confirmation then
 		Notify.info(verb:gsub(PATTERNS.upper_first, string.upper) .. " cancelled")
 		return false
@@ -474,7 +482,11 @@ local function cmd_empty_trash(config)
 	end
 
 	-- Show confirmation dialog with details
-	local body = string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)
+	local body = ui.Text({
+		ui.Line(string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)),
+	})
+		:align(ui.Align.LEFT)
+		:wrap(ui.Wrap.YES)
 	local confirmation = confirm("Empty Trash", body)
 	if not confirmation then
 		Notify.info("Empty trash cancelled")
@@ -518,7 +530,11 @@ local function cmd_empty_trash_by_days(config)
 	end
 
 	-- Show confirmation dialog
-	local body = string.format("Are you sure you want to delete all trash items older than %d days?", days)
+	local body = ui.Text({
+		ui.Line(string.format("Are you sure you want to delete all trash items older than %d days?", days)),
+	})
+		:align(ui.Align.LEFT)
+		:wrap(ui.Wrap.YES)
 	local confirmation = confirm("Empty Trash by Days", body)
 	if not confirmation then
 		Notify.info("Empty trash by days cancelled")
@@ -554,14 +570,7 @@ local function cmd_delete_selection()
 	end
 
 	-- Confirm deletion from trash with warning
-	if
-		not confirm_batch_operation(
-			"Delete from Trash",
-			"permanently delete",
-			item_names,
-			"This action cannot be undone!"
-		)
-	then
+	if not confirm_batch_operation("permanently delete", item_names, "This action cannot be undone!") then
 		return
 	end
 
@@ -647,7 +656,7 @@ local function cmd_restore_selection()
 	end
 
 	-- Confirm restoration
-	if not confirm_batch_operation("Restore Files", "restore", restore_item_names, nil) then
+	if not confirm_batch_operation("restore", restore_item_names, nil) then
 		return
 	end
 
