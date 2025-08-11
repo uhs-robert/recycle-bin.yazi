@@ -862,10 +862,6 @@ end
 -- Default configuration
 local default_config = {
 	trash_dir = HOME .. "/.local/share/Trash/",
-	ui = {
-		menu_max = 15, -- can go up to 36
-		picker = "auto",
-	},
 }
 
 ---Merges user‑provided configuration options into the defaults.

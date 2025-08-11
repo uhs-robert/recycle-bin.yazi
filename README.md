@@ -41,6 +41,8 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 | Yazi      | `>=25.5.31` | untested on 25.6+                       |
 | trash-cli | any         | `sudo dnf/apt/pacman install trash-cli` |
 
+The plugin uses the following trash-cli commands: `trash-list`, `trash-empty`, `trash-restore`, and `trash-rm`.
+
 ## 📦 Installation
 
 Install the plugin via Yazi's package manager:
@@ -121,9 +123,27 @@ prepend_keymap = [
 2. **Restore files**: Select files in trash using Yazi's native selection and press `Rr` to restore them
 3. **Delete permanently**: Select files in trash and press `Rd` to delete them permanently
 4. **Empty trash**: Press `Re` to empty the entire trash bin (with confirmation)
-5. **Empty by age**: Press `RD` to empty trash items older than specified days
+5. **Empty by age**: Press `RD` to empty trash items older than specified days (defaults to 30 days)
 
 ### Tips
 
 - Use Yazi's visual selection (`v` or `V`) or toggle selection (press `Space` on files) to select multiple files from the Trash before restoring or deleting
 - The plugin will show a confirmation dialog for destructive operations
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**"trashcli not found" error:**
+- Ensure trash-cli is installed: `sudo dnf/apt/pacman install trash-cli`
+- Verify installation: `trash-list --version`
+- Check if trash-cli commands are in your PATH
+
+**"Trash directory not found" error:**
+- The default trash directory is `~/.local/share/Trash/`
+- Create it manually if it doesn't exist: `mkdir -p ~/.local/share/Trash/{files,info}`
+- Or customize the path in your configuration
+
+**"No files selected" warning:**
+- Make sure you have files selected in Yazi before running restore/delete operations
+- Use `Space` to select files or `v`/`V` for visual selection mode
