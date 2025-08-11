@@ -730,88 +730,39 @@ local function cmd_restore_selection(config)
 		return
 	end
 
-	-- Build lookup table for O(1) filename matching
-	local selected_lookup = {}
-	for _, path in ipairs(selected_paths) do
-		local filename = path:match(PATTERNS.filename) or path
-		selected_lookup[filename] = true
-	end
-
-	-- Get trash list to find original paths
-	local list_err, list_output = run_command("trash-list", {})
-	if list_err or not list_output then
-		Notify.error("Failed to get trash list: %s", list_err)
-		return
-	end
-
-	-- Parse trash-list output and match with selected filenames
-	-- Use single table to store related data for better memory efficiency
+	-- Direct restore approach - use trash-restore with filename patterns
 	local restore_items = {}
-	local restore_count = 0
-
-	debug(list_output)
-	debug(list_output.stdout)
-
-	for line in list_output.stdout:gmatch(PATTERNS.line_break_crlf) do
-		-- Parse format: "YYYY-MM-DD HH:MM:SS /full/path/to/file"
-		local datetime, original_path = line:match(PATTERNS.trash_list)
-		if datetime and original_path then
-			local filename = original_path:match(PATTERNS.filename) or original_path
-
-			-- O(1) lookup
-			if selected_lookup[filename] then
-				restore_count = restore_count + 1
-				restore_items[restore_count] = {
-					path = original_path,
-					name = filename,
-				}
-			end
-		end
-	end
-
-	if restore_count == 0 then
-		Notify.warn("No matching files found in trash")
-		return
-	end
-
-	-- Add size information to restore_items
 	local trash_files_dir = config.trash_dir .. "files/"
 	local normalized_trash_files_dir = trash_files_dir
 	if not normalized_trash_files_dir:match("/$") then
 		normalized_trash_files_dir = normalized_trash_files_dir .. "/"
 	end
 
-	for i = 1, restore_count do
-		local item = restore_items[i]
-		-- Construct full path to the file in trash files directory
-		local full_path = normalized_trash_files_dir .. item.name
-
-		-- Get file size using existing utility function
+	-- Prepare items with size information
+	for i, path in ipairs(selected_paths) do
+		local filename = path:match(PATTERNS.filename) or path
+		local full_path = normalized_trash_files_dir .. filename
+		
+		-- Get file size
 		local bytes, size_err = get_file_size(full_path)
-		local formatted_size
-
-		if size_err then
-			-- Log the error but continue processing other files
-			debug("Could not get size for file %s: %s", item.name, size_err)
-			formatted_size = "unknown size"
-		else
-			-- Format the size using existing utility function
-			formatted_size = format_file_size(bytes)
-		end
-
-		-- Add size to the restore item
-		item.size = formatted_size
+		local formatted_size = size_err and "unknown size" or format_file_size(bytes)
+		
+		restore_items[i] = {
+			path = path,
+			name = filename,
+			size = formatted_size,
+		}
 	end
 
-	-- Confirm restoration with size information
+	-- Confirm restoration
 	if not confirm_batch_operation("restore", restore_items, nil) then
 		return
 	end
 
-	-- Create operation function for restore
+	-- Create operation function for direct restore
 	local function restore_operation(item)
-		-- Use trash-restore with the original path
-		local restore_err, _ = run_command("trash-restore", { item.path }, "0\n")
+		-- Use trash-restore with filename pattern matching
+		local restore_err, _ = run_command("trash-restore", { item.name }, "0\n")
 		if restore_err then
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			return restore_err
@@ -823,7 +774,7 @@ local function cmd_restore_selection(config)
 
 	-- Execute batch operation
 	local success_count, failed_count = execute_batch_operation(restore_items, "restoring", restore_operation)
-
+	
 	-- Report results
 	report_operation_results("restoring", success_count, failed_count)
 end
