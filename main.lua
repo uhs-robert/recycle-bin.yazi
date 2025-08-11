@@ -213,8 +213,8 @@ local function prompt(title, is_password, value)
 end
 
 ---Show a confirmation box.
----@param title string
----@param body string?
+---@param title AsLine
+---@param body AsText?
 ---@return boolean
 local function confirm(title, body)
 	debug("Confirming user action for `%s`", title)
@@ -224,154 +224,6 @@ local function confirm(title, body)
 		pos = { "center", w = 60, h = 10 },
 	})
 	return answer
-end
-
----Present a simple which‑key style selector and return the chosen item (Max: 36 options).
----@param title string
----@param items string[]
----@return string|nil
-local function choose_which(title, items)
-	local keys = "1234567890abcdefghijklmnopqrstuvwxyz"
-	local candidates = {}
-	for i, item in ipairs(items) do
-		if i > #keys then
-			break
-		end
-		candidates[#candidates + 1] = { on = keys:sub(i, i), desc = item }
-	end
-
-	local idx = ya.which({ title = title, cands = candidates })
-	return idx and items[idx]
-end
-
----@param title string
----@param items string[]
----@return string|nil
-local function choose_with_fzf(title, items)
-	local permit = ya.hide()
-	local result = nil
-
-	local items_str = table.concat(items, "\n")
-	local args = {
-		"--prompt",
-		title .. "> ",
-		"--height",
-		"100%",
-		"--layout",
-		"reverse",
-		"--border",
-	}
-
-	local cmd = Command("fzf")
-	for _, arg in ipairs(args) do
-		cmd:arg(arg)
-	end
-
-	local child, err = cmd:stdin(Command.PIPED):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
-	if not child then
-		Notify.error("Failed to start `fzf`: %s", tostring(err))
-		permit:drop()
-		return nil
-	end
-
-	child:write_all(items_str)
-	child:flush()
-
-	local output, wait_err = child:wait_with_output()
-	if not output then
-		Notify.error("Cannot read `fzf` output: %s", tostring(wait_err))
-	else
-		if output.status.success and output.status.code ~= 130 and output.stdout ~= "" then
-			result = output.stdout:match("^(.-)\n?$")
-		elseif output.status.code ~= 130 then
-			Notify.error("`fzf` exited with error code %s. Stderr: %s", output.status.code, output.stderr)
-		end
-	end
-
-	permit:drop()
-	return result
-end
-
-local choose
-
----Shows a filterable list for the user to choose from.
----@param title string
----@param items string[]
----@param config table|nil Optional config to avoid state retrieval
----@return string|nil
-local function choose_filtered(title, items, config)
-	local query = prompt(title .. " (filter)")
-	if query == nil then
-		return nil
-	end
-
-	local filtered_items = {}
-	if query == "" then
-		filtered_items = items
-	else
-		query = query:lower()
-		for _, item in ipairs(items) do
-			if item:lower():find(query, 1, true) then
-				table.insert(filtered_items, item)
-			end
-		end
-	end
-
-	if #filtered_items == 0 then
-		Notify.warn("No items match your filter.")
-		return nil
-	end
-
-	-- After filtering, restart the choose decision matrix
-	return choose(title, filtered_items, config)
-end
-
----@param count integer
----@param max integer
----@param preferred "auto"|"fzf"
----@return "fzf"|"menu"|"filter"
-local function get_picker(count, max, preferred)
-	local has_fzf = get_state(STATE_KEY.HAS_FZF)
-	if preferred == "fzf" then
-		return has_fzf and "fzf" or "filter"
-	else
-		if count > max then
-			return has_fzf and "fzf" or "filter"
-		else
-			return "menu"
-		end
-	end
-end
-
----Present a prompt to choose from a picker
----@param title string
----@param items string[]
----@param config table|nil Optional config to avoid state retrieval
----@return string|nil
-choose = function(title, items, config)
-	config = config or get_state(STATE_KEY.CONFIG)
-	local picker = config.ui.picker or "auto"
-	local max = config.ui.menu_max or 15
-
-	debug("Picker: %s, max: %d", picker, max)
-
-	if #items == 0 then
-		return nil
-	elseif #items == 1 then
-		return items[1]
-	end
-
-	local mode = get_picker(#items, max, picker)
-
-	debug("Mode: %s", mode)
-
-	if mode == "fzf" then
-		return choose_with_fzf(title, items)
-	elseif mode == "menu" then
-		return choose_which(title, items)
-	elseif mode == "filter" then
-		return choose_filtered(title, items, config)
-	end
 end
 
 --============== File helpers ====================================
@@ -466,6 +318,20 @@ local function get_trash_data(config)
 	}, nil
 end
 
+--=========== File Selection =================================================
+
+---Get selected files from Yazi (based on archivemount.yazi pattern)
+---@return string[]
+local get_selected_files = ya.sync(function()
+	local tab, paths = cx.active, {}
+	for _, u in pairs(tab.selected) do
+		paths[#paths + 1] = tostring(u)
+	end
+	if #paths == 0 and tab.current.hovered then
+		paths[1] = tostring(tab.current.hovered.url)
+	end
+	return paths
+end)
 
 --=========== api actions =================================================
 
@@ -475,13 +341,12 @@ local function cmd_open_trash(config)
 	-- Ensure the trash files directory exists
 	local trash_files_url = Url(trash_files_dir)
 	if not is_dir(trash_files_url) then
-		Notify.error("Trash files directory does not exist: %s", trash_files_dir)
+		Notify.error("Trash files directory not found: %s", trash_files_dir)
 		return
 	end
 
 	-- Navigate to the trash files directory in Yazi
 	ya.emit("cd", { trash_files_url })
-	Notify.info("Opened trash directory: %s", trash_files_dir)
 end
 
 local function cmd_empty_trash(config)
@@ -570,9 +435,100 @@ local function cmd_empty_trash_by_days(config)
 	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
 end
 
-local function cmd_delete_selection(config) end
+local function cmd_delete_selection() end
 
-local function cmd_restore_selection(config) end
+local function cmd_restore_selection()
+	-- Get selected files from Yazi
+	local selected_paths = get_selected_files()
+	if #selected_paths == 0 then
+		Notify.warn("No files selected for restoration")
+		return
+	end
+
+	debug("Selected paths for restoration: %s", table.concat(selected_paths, ", "))
+
+	-- Extract just the filename from each selected path
+	local selected_filenames = {}
+	for _, path in ipairs(selected_paths) do
+		local filename = path:match("([^/]+)$") or path
+		table.insert(selected_filenames, filename)
+	end
+
+	-- Get trash list to find original paths
+	local list_err, list_output = run_command("trash-list", {})
+	if list_err or not list_output then
+		Notify.error("Failed to get trash list: %s", list_err)
+		return
+	end
+
+	-- Parse trash-list output and match with selected filenames
+	local original_paths = {}
+	local item_names = {}
+
+	debug(list_output)
+	debug(list_output.stdout)
+
+	for line in string.gmatch(list_output.stdout, "[^\r\n]+") do
+		-- Parse format: "YYYY-MM-DD HH:MM:SS /full/path/to/file"
+		local datetime, original_path = line:match("^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d) (.+)$")
+		if datetime and original_path then
+			local filename = original_path:match("([^/]+)$") or original_path
+
+			-- Check if this file is in our selection
+			for _, selected_filename in ipairs(selected_filenames) do
+				if filename == selected_filename then
+					table.insert(original_paths, original_path)
+					table.insert(item_names, filename)
+					break
+				end
+			end
+		end
+	end
+
+	if #original_paths == 0 then
+		Notify.warn("No matching files found in trash")
+		return
+	end
+
+	-- Confirm restoration
+	local confirmation = confirm(
+		"Restore Files",
+		string.format("Restore %d file(s) from trash:\n%s", #original_paths, table.concat(item_names, "\n"))
+	)
+	if not confirmation then
+		Notify.info("Restoration cancelled")
+		return
+	end
+
+	-- Perform restoration for each original path
+	Notify.info("Restoring %d file(s)...", #original_paths)
+
+	local restored_count = 0
+	local failed_count = 0
+
+	for _, original_path in ipairs(original_paths) do
+		-- Use trash-restore with the original path
+		local restore_err, restore_output = run_command("trash-restore", { original_path }, "0\n")
+		if restore_err then
+			local filename = original_path:match("([^/]+)$") or original_path
+			Notify.error("Failed to restore %s: %s", filename, restore_err)
+			failed_count = failed_count + 1
+		else
+			local filename = original_path:match("([^/]+)$") or original_path
+			debug("Successfully restored: %s", filename)
+			restored_count = restored_count + 1
+		end
+	end
+
+	-- Final notification
+	if restored_count > 0 and failed_count == 0 then
+		Notify.info("Successfully restored %d file(s)", restored_count)
+	elseif restored_count > 0 and failed_count > 0 then
+		Notify.warn("Restored %d file(s), failed %d", restored_count, failed_count)
+	else
+		Notify.error("Failed to restore any files")
+	end
+end
 
 --=========== init requirements ================================================
 
@@ -641,9 +597,9 @@ function M:entry(job)
 	if action == "open" then
 		cmd_open_trash(config)
 	elseif action == "delete" then
-		cmd_delete_selection(config)
+		cmd_delete_selection()
 	elseif action == "restore" then
-		cmd_restore_selection(config)
+		cmd_restore_selection()
 	elseif action == "emptyDays" then
 		cmd_empty_trash_by_days(config)
 	elseif action == "empty" then
