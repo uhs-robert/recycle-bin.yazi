@@ -5,8 +5,10 @@
 [![GitHub stars](https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues-raw/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/issues)
 
-> !> [!WARNING]
+> [!WARNING]
 > This is currently in development and not actually ready. Hoping to have it ready by September of 2025 if not earlier since I like to dumpster dive in my trash.
+
+---
 
 A minimal, fast **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
 

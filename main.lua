@@ -162,30 +162,6 @@ local get_state = ya.sync(function(state, key)
 end)
 
 --=========== Utils =================================================
----Combines two lists
-local function list_extend(a, b)
-	local result = {}
-	for _, v in ipairs(a) do
-		table.insert(result, v)
-	end
-	for _, v in ipairs(b) do
-		table.insert(result, v)
-	end
-	return result
-end
-
----Filters a list to get unique values
-local function unique(list)
-	local seen, out = {}, {}
-	for _, v in ipairs(list) do
-		if not seen[v] then
-			seen[v] = true
-			out[#out + 1] = v
-		end
-	end
-	return out
-end
-
 --- Deep merge two tables: overrides take precedence
 ---@param defaults table
 ---@param overrides table|nil
@@ -234,6 +210,20 @@ local function prompt(title, is_password, value)
 	end
 
 	return input_value
+end
+
+---Show a confirmation box.
+---@param title string
+---@param body string?
+---@return boolean
+local function confirm(title, body)
+	debug("Confirming user action for `%s`", title)
+	local answer = ya.confirm({
+		title = title,
+		body = body or "",
+		pos = { "center", w = 60, h = 10 },
+	})
+	return answer
 end
 
 ---Present a simple which‑key style selector and return the chosen item (Max: 36 options).
@@ -401,10 +391,58 @@ local function is_dir_empty(url)
 	return type(files) == "table" and #files == 0
 end
 
+--=========== Trash helpers =================================================
+
+---Verify trash dir exists
+local function check_has_trash_directory()
+	local config = get_state(STATE_KEY.CONFIG)
+	local trash_dir = config.trash_dir
+	local trash_url = Url(trash_dir)
+
+	if not is_dir(trash_url) then
+		Notify.error("Trash directory not found: %s. Please check your configuration.", trash_dir)
+		return false
+	end
+
+	return true
+end
+
+---Get count of items in trash
+---@return integer, string|nil -- count, error
+local function get_trash_item_count()
+	local err, output = run_command("trash-list", {})
+	if err then
+		return 0, err
+	end
+
+	local item_count = 0
+	if output and output.stdout ~= "" then
+		for _ in output.stdout:gmatch("[^\n]+") do
+			item_count = item_count + 1
+		end
+	end
+
+	return item_count, nil
+end
+
+---Get size of trash files directory
+---@param config table
+---@return string, string|nil -- size_string, error
+local function get_trash_size(config)
+	local trash_files_dir = config.trash_dir .. "files"
+
+	local err, output = run_command("du", { "-sh", trash_files_dir }, nil, true)
+	if err or not output or output.stdout == "" then
+		return "unknown size", err
+	end
+
+	local size_info = output.stdout:match("^(%S+)")
+	return size_info or "unknown size", nil
+end
+
 --=========== api actions =================================================
 
-local function cmd_open_trash()
-	local config = get_state(STATE_KEY.CONFIG)
+local function cmd_open_trash(config)
 	local trash_files_dir = config.trash_dir .. "files"
 
 	-- Ensure the trash files directory exists
@@ -419,13 +457,54 @@ local function cmd_open_trash()
 	Notify.info("Opened trash directory: %s", trash_files_dir)
 end
 
-local function cmd_empty_trash()
-	local config = get_state(STATE_KEY.CONFIG)
+local function cmd_empty_trash(config)
+	-- Check if trash directory exists
+	if not check_has_trash_directory() then
+		return
+	end
+
+	-- Get trash info
+	local item_count, count_err = get_trash_item_count()
+	if count_err then
+		Notify.error("Failed to get trash contents: %s", count_err)
+		return
+	end
+
+	if item_count == 0 then
+		Notify.info("Trash is already empty")
+		return
+	end
+
+	local size_info, size_err = get_trash_size(config)
+	if size_err then
+		debug("Failed to get trash size: %s", size_err)
+	end
+
+	-- Show confirmation dialog with details
+	local body = string.format("Are you sure you want to delete these %d items (%s)?", item_count, size_info)
+	local confirmation = confirm("Empty Trash", body)
+	if not confirmation then
+		Notify.info("Empty trash cancelled")
+		return
+	end
+
+	-- Execute trash-empty command
+	Notify.info("Emptying trash...")
+	local err, output = run_command("trash-empty", {}, "y\n")
+
+	if err then
+		Notify.error("Failed to empty trash: %s", err)
+		return
+	end
+
+	Notify.info("Trash emptied successfully (%d items, %s freed)", item_count, size_info)
 end
 
-local function cmd_restore_selection(args)
-	local config = get_state(STATE_KEY.CONFIG)
-end
+local function cmd_empty_trash_by_days(config) end
+
+local function cmd_delete_selection(config) end
+
+local function cmd_restore_selection(config) end
 
 --=========== init requirements ================================================
 
@@ -442,20 +521,6 @@ local function check_dependencies()
 	-- Check for fzf (optional dependency)
 	local fzf_err, _ = run_command("fzf", { "--version" }, nil, true)
 	set_state(STATE_KEY.HAS_FZF, not fzf_err)
-	return true
-end
-
----Verify trash dir exists
-local function check_has_trash_directory()
-	local config = get_state(STATE_KEY.CONFIG)
-	local trash_dir = config.trash_dir
-	local trash_url = Url(trash_dir)
-
-	if not is_dir(trash_url) then
-		Notify.error("Trash directory not found: %s. Please check your configuration.", trash_dir)
-		return false
-	end
-
 	return true
 end
 
@@ -503,13 +568,18 @@ function M:entry(job)
 		return
 	end
 
+	local config = get_state(STATE_KEY.CONFIG)
 	local action = job.args[1]
 	if action == "open" then
-		cmd_open_trash()
+		cmd_open_trash(config)
+	elseif action == "delete" then
+		cmd_delete_selection(config)
 	elseif action == "restore" then
-		cmd_restore_selection()
+		cmd_restore_selection(config)
+	elseif action == "emptyDays" then
+		cmd_empty_trash_by_days(config)
 	elseif action == "empty" then
-		cmd_empty_trash()
+		cmd_empty_trash(config)
 	else
 		Notify.error("Unknown action")
 	end
