@@ -751,8 +751,8 @@ local function cmd_restore_selection(config)
 
 	-- Create operation function for direct restore
 	local function restore_operation(item)
-		-- Use trash-restore with filename pattern matching
-		local restore_err, _ = run_command("trash-restore", { item.name }, "0\n")
+		-- Use trash-restore with filepath pattern matching
+		local restore_err, _ = run_command("trash-restore", { item.path }, "0\n")
 		if restore_err then
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			return restore_err
