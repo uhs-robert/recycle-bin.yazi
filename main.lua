@@ -400,7 +400,6 @@ local function get_trash_file_mappings()
 			if timestamp and original_path then
 				local filename = original_path:match(PATTERNS.filename) or original_path
 				mappings[filename] = original_path
-				debug("Mapped trash file: %s -> %s", filename, original_path)
 			end
 		end
 	end
@@ -489,7 +488,7 @@ local function get_trash_data(config)
 end
 
 --=========== File Selection =================================================
----Get selected files from Yazi (based on archivemount.yazi pattern)
+---Get selected files from Yazi
 ---@return string[]
 local get_selected_files = ya.sync(function()
 	local tab, paths = cx.active, {}
@@ -504,7 +503,7 @@ end)
 
 ---Validates file selection and extracts filenames
 ---@param operation_name string The name of the operation (for logging/notifications)
----@return string[]|nil -- selected_paths (or nil if validation fails)
+---@return string[]|nil -- selected_paths
 local function validate_and_get_selection(operation_name)
 	-- Get selected files from Yazi
 	local selected_paths = get_selected_files()
@@ -556,8 +555,6 @@ end
 ---@param operation_func function Function that takes an item and returns error_string|nil
 ---@return integer, integer -- success_count, failed_count
 local function execute_batch_operation(items, operation_name, operation_func)
-	Notify.info(operation_name:gsub(PATTERNS.upper_first, string.upper) .. " %d file(s)...", #items)
-
 	local success_count = 0
 	local failed_count = 0
 
@@ -677,7 +674,6 @@ local function cmd_empty_trash_by_days(config)
 	end
 
 	-- Execute trash-empty command with days parameter
-	Notify.info("Removing trash items older than %d days...", days)
 	local err, _ = run_command("trash-empty", { tostring(days) }, "y\n")
 	if err then
 		Notify.error("Failed to empty trash by days: %s", err)
@@ -693,7 +689,6 @@ local function cmd_empty_trash_by_days(config)
 
 	-- Calculate items deleted
 	local items_deleted = begin_data.count - end_data.count
-
 	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
 end
 
@@ -724,7 +719,6 @@ local function cmd_delete_selection(config)
 			Notify.error("Failed to delete %s: %s", filename, delete_err)
 			return delete_err
 		else
-			debug("Successfully deleted from trash: %s", filename)
 			return nil
 		end
 	end
@@ -743,7 +737,6 @@ local function cmd_restore_selection(config)
 	if not selected_paths then
 		return
 	end
-	debug(selected_paths)
 
 	-- Get trash file mappings from trash-list
 	local trash_mappings, mapping_err = get_trash_file_mappings()
@@ -800,7 +793,6 @@ local function cmd_restore_selection(config)
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			return restore_err
 		else
-			debug("Successfully restored: %s", item.name)
 			return nil
 		end
 	end
