@@ -225,22 +225,48 @@ local function prompt(title, is_password, value)
 	return input_value
 end
 
+---Create standardized ui.Text with common styling
+---@param lines string|string[] Single line or array of lines
+---@return table ui.Text object with standard alignment and wrapping
+local function create_ui_list(lines)
+	local line_objects = {}
+	if type(lines) == "string" then
+		table.insert(line_objects, ui.Line(lines))
+	else
+		for _, line in ipairs(lines) do
+			table.insert(line_objects, ui.Line(line))
+		end
+	end
+	return ui.Text(line_objects):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
+end
+
 ---Show a confirmation box.
----@param title AsLine|table Confirmation title (string or structured ui.Line)
----@param body AsText|table? Confirmation body (string or structured ui.Text)
+---@param title string|table Confirmation title (string or structured ui.Line)
+---@param body string|string[]|table? Confirmation body (string, string array, or structured ui.Text)
 ---@return boolean
 local function confirm(title, body)
 	local title_str = type(title) == "string" and title or tostring(title)
 	debug("Confirming user action for `%s`", title_str)
 
 	local confirmation_data = {
-		title = ui.Line(title),
+		title = type(title) == "string" and ui.Line(title) or title,
 		pos = { "center", w = 60, h = 10 },
 	}
 
 	if body then
-		confirmation_data.body = body
-		confirmation_data.content = body
+		-- Handle different body types
+		if type(body) == "string" then
+			confirmation_data.content = create_ui_list(body)
+			confirmation_data.body = create_ui_list(body)
+		elseif type(body) == "table" and body[1] and type(body[1]) == "string" then
+			-- Array of strings
+			confirmation_data.content = create_ui_list(body)
+			confirmation_data.body = create_ui_list(body)
+		else
+			-- Structured UI component (ui.Text)
+			confirmation_data.content = body
+			confirmation_data.body = body
+		end
 	end
 
 	local answer = ya.confirm(confirmation_data)
@@ -380,24 +406,23 @@ end
 ---@param warning string|nil Optional warning message
 ---@return boolean
 local function confirm_batch_operation(verb, items, warning)
-	local title =
-		ui.Line(string.format("%s the following %d file(s):", verb:gsub(PATTERNS.upper_first, string.upper), #items))
-	-- Create structured UI components
+	local title = string.format("%s the following %d file(s):", verb:gsub(PATTERNS.upper_first, string.upper), #items)
+
+	-- Create structured UI components for proper alignment and styling
 	local body_components = {}
 
-	-- Add each item as a formatted line
+	-- Add each item as a formatted line with proper left alignment
 	for _, item in ipairs(items) do
-		table.insert(body_components, ui.Line({ ui.Span(" "), ui.Span(item) }):align(ui.Align.LEFT))
+		table.insert(body_components, ui.Line({ ui.Span("  "), ui.Span(item) }):align(ui.Align.LEFT))
 	end
 
-	-- Add warning if provided
+	-- Add warning if provided with styling
 	if warning then
 		table.insert(body_components, ui.Line(""))
 		table.insert(body_components, ui.Line(warning):style(th.notify.title_warn))
 	end
 
 	local structured_body = ui.Text(body_components):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
-
 	local confirmation = confirm(title, structured_body)
 	if not confirmation then
 		Notify.info(verb:gsub(PATTERNS.upper_first, string.upper) .. " cancelled")
@@ -482,11 +507,7 @@ local function cmd_empty_trash(config)
 	end
 
 	-- Show confirmation dialog with details
-	local body = ui.Text({
-		ui.Line(string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)),
-	})
-		:align(ui.Align.LEFT)
-		:wrap(ui.Wrap.YES)
+	local body = string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)
 	local confirmation = confirm("Empty Trash", body)
 	if not confirmation then
 		Notify.info("Empty trash cancelled")
@@ -530,11 +551,7 @@ local function cmd_empty_trash_by_days(config)
 	end
 
 	-- Show confirmation dialog
-	local body = ui.Text({
-		ui.Line(string.format("Are you sure you want to delete all trash items older than %d days?", days)),
-	})
-		:align(ui.Align.LEFT)
-		:wrap(ui.Wrap.YES)
+	local body = string.format("Are you sure you want to delete all trash items older than %d days?", days)
 	local confirmation = confirm("Empty Trash by Days", body)
 	if not confirmation then
 		Notify.info("Empty trash by days cancelled")
