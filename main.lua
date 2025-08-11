@@ -11,6 +11,20 @@ local XDG_RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR") or ("/run/user/" .. USER_ID
 --=========== Paths ===========================================================
 local HOME = os.getenv("HOME")
 
+--=========== Compiled Patterns (Performance Optimization) ==================
+-- Pre-compiled string patterns for better performance
+local PATTERNS = {
+	filename = "([^/]+)$",
+	trash_list = "^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d) (.+)$",
+	line_break = "[^\n]+",
+	line_break_crlf = "[^\r\n]+",
+	size_info = "^(%S+)",
+	whitespace_cleanup = "[\r\n]+",
+	trailing_space = "%s+$",
+	first_word = "%l",
+	upper_first = "^%l",
+}
+
 --=========== Plugin State ===========================================================
 ---@enum
 local STATE_KEY = {
@@ -45,7 +59,7 @@ function Notify._parseContent(s, ...)
 	if not ok then
 		content = s
 	end
-	content = tostring(content):gsub("[\r\n]+", " "):gsub("%s+$", "")
+	content = tostring(content):gsub(PATTERNS.whitespace_cleanup, " "):gsub(PATTERNS.trailing_space, "")
 	return content
 end
 
@@ -265,9 +279,7 @@ local function get_trash_item_count()
 
 	local item_count = 0
 	if output and output.stdout ~= "" then
-		for _ in output.stdout:gmatch("[^\n]+") do
-			item_count = item_count + 1
-		end
+		_, item_count = output.stdout:gsub(PATTERNS.line_break, "")
 	end
 
 	return item_count, nil
@@ -284,7 +296,7 @@ local function get_trash_size(config)
 		return "unknown size", err
 	end
 
-	local size_info = output.stdout:match("^(%S+)")
+	local size_info = output.stdout:match(PATTERNS.size_info)
 	return size_info or "unknown size", nil
 end
 
@@ -345,10 +357,9 @@ local function validate_and_get_selection(operation_name)
 	debug("Selected paths for %s: %s", operation_name, table.concat(selected_paths, ", "))
 
 	-- Extract filenames for confirmation dialog
-	local filename_pattern = "([^/]+)$"
 	local item_names = {}
 	for i, path in ipairs(selected_paths) do
-		local filename = path:match(filename_pattern) or path
+		local filename = path:match(PATTERNS.filename) or path
 		item_names[i] = filename
 	end
 
@@ -365,22 +376,24 @@ end
 local function confirm_batch_operation(title, verb, items, warning)
 	local body_parts = {}
 
-	-- Add main confirmation message
-	body_parts[#body_parts + 1] = string.format(
+	-- Build body string
+	local body_parts_count = 1
+	body_parts[body_parts_count] = string.format(
 		"%s %d file(s) from trash:\n%s",
-		verb:gsub("^%l", string.upper),
+		verb:gsub(PATTERNS.upper_first, string.upper),
 		#items,
 		table.concat(items, "\n")
 	)
 
 	-- Add warning if provided
 	if warning then
-		body_parts[#body_parts + 1] = "\n" .. warning
+		body_parts_count = body_parts_count + 1
+		body_parts[body_parts_count] = "\n" .. warning
 	end
 
-	local confirmation = confirm(title, table.concat(body_parts, ""))
+	local confirmation = confirm(title, table.concat(body_parts, "", 1, body_parts_count))
 	if not confirmation then
-		Notify.info(verb:gsub("^%l", string.upper) .. " cancelled")
+		Notify.info(verb:gsub(PATTERNS.upper_first, string.upper) .. " cancelled")
 		return false
 	end
 
@@ -393,7 +406,7 @@ end
 ---@param operation_func function Function that takes an item and returns error_string|nil
 ---@return integer, integer -- success_count, failed_count
 local function execute_batch_operation(items, operation_name, operation_func)
-	Notify.info(operation_name:gsub("^%l", string.upper) .. " %d file(s)...", #items)
+	Notify.info(operation_name:gsub(PATTERNS.upper_first, string.upper) .. " %d file(s)...", #items)
 
 	local success_count = 0
 	local failed_count = 0
@@ -422,7 +435,12 @@ local function report_operation_results(operation_name, success_count, failed_co
 	if success_count > 0 and failed_count == 0 then
 		Notify.info("Successfully %s %d file(s)", past_tense, success_count)
 	elseif success_count > 0 and failed_count > 0 then
-		Notify.warn("%s %d file(s), failed %d", past_tense:gsub("^%l", string.upper), success_count, failed_count)
+		Notify.warn(
+			"%s %d file(s), failed %d",
+			past_tense:gsub(PATTERNS.upper_first, string.upper),
+			success_count,
+			failed_count
+		)
 	else
 		Notify.error("Failed to %s any files", operation_name:gsub("ing$", ""))
 	end
@@ -548,12 +566,9 @@ local function cmd_delete_selection()
 		return
 	end
 
-	-- Pre-compile pattern for performance
-	local filename_pattern = "([^/]+)$"
-
 	-- Create operation function for delete
 	local function delete_operation(path)
-		local filename = path:match(filename_pattern) or path
+		local filename = path:match(PATTERNS.filename) or path
 
 		-- Use trash-rm with the filename as pattern
 		-- trash-rm uses fnmatch patterns, so we pass the filename directly
@@ -582,14 +597,10 @@ local function cmd_restore_selection()
 		return
 	end
 
-	-- Pre-compile patterns for better performance
-	local filename_pattern = "([^/]+)$"
-	local line_pattern = "^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d) (.+)$"
-
 	-- Build lookup table for O(1) filename matching
 	local selected_lookup = {}
 	for _, path in ipairs(selected_paths) do
-		local filename = path:match(filename_pattern) or path
+		local filename = path:match(PATTERNS.filename) or path
 		selected_lookup[filename] = true
 	end
 
@@ -603,19 +614,21 @@ local function cmd_restore_selection()
 	-- Parse trash-list output and match with selected filenames
 	-- Use single table to store related data for better memory efficiency
 	local restore_items = {}
+	local restore_count = 0
 
 	debug(list_output)
 	debug(list_output.stdout)
 
-	for line in list_output.stdout:gmatch("[^\r\n]+") do
+	for line in list_output.stdout:gmatch(PATTERNS.line_break_crlf) do
 		-- Parse format: "YYYY-MM-DD HH:MM:SS /full/path/to/file"
-		local datetime, original_path = line:match(line_pattern)
+		local datetime, original_path = line:match(PATTERNS.trash_list)
 		if datetime and original_path then
-			local filename = original_path:match(filename_pattern) or original_path
+			local filename = original_path:match(PATTERNS.filename) or original_path
 
-			-- O(1) lookup instead of O(n) search
+			-- O(1) lookup
 			if selected_lookup[filename] then
-				restore_items[#restore_items + 1] = {
+				restore_count = restore_count + 1
+				restore_items[restore_count] = {
 					path = original_path,
 					name = filename,
 				}
@@ -623,15 +636,15 @@ local function cmd_restore_selection()
 		end
 	end
 
-	if #restore_items == 0 then
+	if restore_count == 0 then
 		Notify.warn("No matching files found in trash")
 		return
 	end
 
-	-- Build item names for confirmation dialog
+	-- Build item names for confirmation dialog using more efficient method
 	local restore_item_names = {}
-	for i, item in ipairs(restore_items) do
-		restore_item_names[i] = item.name
+	for i = 1, restore_count do
+		restore_item_names[i] = restore_items[i].name
 	end
 
 	-- Confirm restoration
@@ -683,7 +696,8 @@ local function init()
 		if not check_dependencies() then
 			return false
 		end
-		if not check_has_trash_directory() then
+		local config = get_state(STATE_KEY.CONFIG)
+		if not check_has_trash_directory(config) then
 			return false
 		end
 		initialized = true
@@ -720,8 +734,11 @@ function M:entry(job)
 		return
 	end
 
+	-- Cache config to avoid multiple state access calls
 	local config = get_state(STATE_KEY.CONFIG)
 	local action = job.args[1]
+
+	-- Pass config to functions that need it to avoid additional state calls
 	if action == "open" then
 		cmd_open_trash(config)
 	elseif action == "delete" then
