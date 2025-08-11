@@ -352,7 +352,7 @@ local function confirm(title, body)
 
 	local confirmation_data = {
 		title = type(title) == "string" and ui.Line(title) or title,
-		pos = { "center", w = 60, h = 10 },
+		pos = { "center", w = 70, h = 40 },
 	}
 
 	if body then

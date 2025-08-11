@@ -5,21 +5,15 @@
 [![GitHub stars](https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues-raw/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/issues)
 
-A minimal and fast **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
+A fast, minimal **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
 
-Browse and manage your Trash straight from the terminal. Use this plugin to open your Trash and then select the files you want to restore or permanently delete. You may also remotely remove all files from the trash or only remove files deleted `<days>` ago.
+Browse, restore, or permanently delete trashed files without leaving your terminal. Includes age-based cleanup and bulk actions.
 
 > [!NOTE]
 >
-> **Linux Only (for now!)**
+> **Linux Only**
 >
 > This plugin currently supports Linux only.
-> If you're interested in helping add support for other platforms, check out the open issues:
->
-> - [Add macOS support](https://github.com/uhs-robert/recycle-bin.yazi/issues/1)
-> - [Add Windows support](https://github.com/uhs-robert/recycle-bin.yazi/issues/2)
->
-> If you have some Lua experience (or want to learn), I’d be happy to walk you through integration and testing. Pull requests are welcome!
 
 ## 🧠 What it does under the hood
 
@@ -31,7 +25,7 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 - **🔄 Restore files**: Bulk restore selected files from trash to their original locations
 - **🗑️ Empty trash**: Clear entire trash with confirmation dialog
 - **📅 Empty by days**: Remove trash items older than specified number of days
-- **❌ Permanent delete**: Delete selected files from trash permanently
+- **❌ Permanent delete**: Bulk delete selected files from trash permanently
 - **🔧 Configurable**: Customize trash directory
 
 ## 📋 Requirements
@@ -82,7 +76,6 @@ prepend_keymap = [
     "t",
   ], run = "plugin recycle-bin open", desc = "Go to Trash" },
 
-
   # Open the trash
   { on = [
     "R",
@@ -93,13 +86,13 @@ prepend_keymap = [
   { on = [
     "R",
     "e",
-  ], run = "plugin recycle-bin empty", desc = "Empty trash" },
+  ], run = "plugin recycle-bin empty", desc = "Empty Trash" },
 
   # Delete selected items from trash
   { on = [
     "R",
     "d",
-  ], run = "plugin recycle-bin delete", desc = "Delete from trash" },
+  ], run = "plugin recycle-bin delete", desc = "Delete from Trash" },
 
   # Empty trash by days since deleted
   { on = [
@@ -111,7 +104,7 @@ prepend_keymap = [
   { on = [
     "R",
     "r",
-  ], run = "plugin recycle-bin restore", desc = "Restore from trash" },
+  ], run = "plugin recycle-bin restore", desc = "Restore from Trash" },
 ]
 ```
 
@@ -125,25 +118,28 @@ prepend_keymap = [
 4. **Empty trash**: Press `Re` to empty the entire trash bin (with confirmation)
 5. **Empty by age**: Press `RD` to empty trash items older than specified days (defaults to 30 days)
 
-### Tips
-
-- Use Yazi's visual selection (`v` or `V`) or toggle selection (press `Space` on files) to select multiple files from the Trash before restoring or deleting
-- The plugin will show a confirmation dialog for destructive operations
+> [!TIP]
+> Use Yazi's visual selection (`v` or `V`) or toggle selection (press `Space` on files) to select multiple files from the Trash before restoring or deleting
+>
+> The plugin will show a confirmation dialog for destructive operations
 
 ## 🛠️ Troubleshooting
 
 ### Common Issues
 
 **"trashcli not found" error:**
+
 - Ensure trash-cli is installed: `sudo dnf/apt/pacman install trash-cli`
 - Verify installation: `trash-list --version`
 - Check if trash-cli commands are in your PATH
 
 **"Trash directory not found" error:**
+
 - The default trash directory is `~/.local/share/Trash/`
 - Create it manually if it doesn't exist: `mkdir -p ~/.local/share/Trash/{files,info}`
 - Or customize the path in your configuration
 
 **"No files selected" warning:**
+
 - Make sure you have files selected in Yazi before running restore/delete operations
 - Use `Space` to select files or `v`/`V` for visual selection mode
