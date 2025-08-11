@@ -9,6 +9,8 @@ A fast, minimal **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) t
 
 Browse, restore, or permanently delete trashed files without leaving your terminal. Includes age-based cleanup and bulk actions.
 
+https://github.com/user-attachments/assets/1f7ab9b2-33e3-4262-94c5-b27ad9dc142e
+
 > [!NOTE]
 >
 > **Linux Only**
