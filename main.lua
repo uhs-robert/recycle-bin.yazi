@@ -240,6 +240,108 @@ local function create_ui_list(lines)
 	return ui.Text(line_objects):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
 end
 
+---Get file size in bytes using fs.cha()
+---@param file_path string Absolute path to the file
+---@return integer|nil, string|nil -- size_in_bytes, error_message
+local function get_file_size(file_path)
+	local url = Url(file_path)
+	local cha, err = fs.cha(url)
+
+	if not cha then
+		local error_msg = string.format("Failed to get file info for %s: %s", file_path, err or "unknown error")
+		debug(error_msg)
+		return nil, error_msg
+	end
+
+	if not cha.len then
+		local error_msg = string.format("File size not available for %s", file_path)
+		debug(error_msg)
+		return nil, error_msg
+	end
+
+	return cha.len, nil
+end
+
+---Format bytes into human-readable format (B, KB, MB, GB, TB)
+---@param bytes integer|nil Number of bytes to format
+---@return string Formatted size string
+local function format_file_size(bytes)
+	if not bytes or bytes < 0 then
+		return "0 B"
+	end
+
+	local units = { "B", "KB", "MB", "GB", "TB" }
+	local size = bytes
+	local unit_index = 1
+
+	-- Convert to larger units while size >= 1024 and we have larger units
+	while size >= 1024 and unit_index < #units do
+		size = size / 1024
+		unit_index = unit_index + 1
+	end
+
+	-- Format with appropriate decimal places
+	if unit_index == 1 then
+		-- Bytes - no decimal places
+		return string.format("%d %s", size, units[unit_index])
+	elseif size >= 100 then
+		-- >= 100 units - no decimal places (e.g., "156 MB")
+		return string.format("%.0f %s", size, units[unit_index])
+	elseif size >= 10 then
+		-- >= 10 units - one decimal place (e.g., "15.6 MB")
+		return string.format("%.1f %s", size, units[unit_index])
+	else
+		-- < 10 units - two decimal places (e.g., "1.56 MB")
+		return string.format("%.2f %s", size, units[unit_index])
+	end
+end
+
+---Get file objects with size information for multiple files
+---@param file_paths string[] Array of file paths/names to process
+---@param base_dir string Base directory where files are located (e.g., "~/.local/share/Trash/files/")
+---@return {name: string, size: string}[] Array of file objects with name and size
+local function get_files_with_sizes(file_paths, base_dir)
+	debug("Getting file sizes for %d files from base directory: %s", #file_paths, base_dir)
+
+	local file_objects = {}
+
+	-- Ensure base_dir ends with a slash for proper path construction
+	local normalized_base_dir = base_dir
+	if not normalized_base_dir:match("/$") then
+		normalized_base_dir = normalized_base_dir .. "/"
+	end
+
+	for i, file_path in ipairs(file_paths) do
+		-- Extract filename from the path
+		local filename = file_path:match(PATTERNS.filename) or file_path
+
+		-- Construct full path to the file in the base directory
+		local full_path = normalized_base_dir .. filename
+
+		-- Get file size using existing utility function
+		local bytes, size_err = get_file_size(full_path)
+		local formatted_size
+
+		if size_err then
+			-- Log the error but continue processing other files
+			debug("Could not get size for file %s: %s", filename, size_err)
+			formatted_size = "unknown size"
+		else
+			-- Format the size using existing utility function
+			formatted_size = format_file_size(bytes)
+		end
+
+		-- Create file object with name and size
+		file_objects[i] = {
+			name = filename,
+			size = formatted_size,
+		}
+	end
+
+	debug("Successfully processed %d file objects", #file_objects)
+	return file_objects
+end
+
 ---Show a confirmation box.
 ---@param title string|table Confirmation title (string or structured ui.Line)
 ---@param body string|string[]|table? Confirmation body (string, string array, or structured ui.Text)
@@ -379,6 +481,7 @@ end)
 ---Validates file selection and extracts filenames
 ---@param operation_name string The name of the operation (for logging/notifications)
 ---@return string[]|nil, string[]|nil -- selected_paths, item_names (or nil if validation fails)
+---@note The item_names return value is provided for backward compatibility but may not be used by all callers
 local function validate_and_get_selection(operation_name)
 	-- Get selected files from Yazi
 	local selected_paths = get_selected_files()
@@ -389,7 +492,7 @@ local function validate_and_get_selection(operation_name)
 
 	debug("Selected paths for %s: %s", operation_name, table.concat(selected_paths, ", "))
 
-	-- Extract filenames for confirmation dialog
+	-- Extract filenames for backward compatibility
 	local item_names = {}
 	for i, path in ipairs(selected_paths) do
 		local filename = path:match(PATTERNS.filename) or path
@@ -402,7 +505,7 @@ end
 --=========== Batch Operations =================================================
 ---Shows standardized confirmation dialog for batch operations
 ---@param verb string Action verb (e.g., "delete", "restore")
----@param items string[] List of item names
+---@param items {name: string, size: string}[] List of file objects with name and size
 ---@param warning string|nil Optional warning message
 ---@return boolean
 local function confirm_batch_operation(verb, items, warning)
@@ -411,9 +514,10 @@ local function confirm_batch_operation(verb, items, warning)
 	-- Create structured UI components for proper alignment and styling
 	local body_components = {}
 
-	-- Add each item as a formatted line with proper left alignment
+	-- Add each item as a formatted line with proper left alignment showing "fileName (size)"
 	for _, item in ipairs(items) do
-		table.insert(body_components, ui.Line({ ui.Span("  "), ui.Span(item) }):align(ui.Align.LEFT))
+		local display_text = string.format("%s (%s)", item.name, item.size)
+		table.insert(body_components, ui.Line({ ui.Span("  "), ui.Span(display_text) }):align(ui.Align.LEFT))
 	end
 
 	-- Add warning if provided with styling
@@ -433,7 +537,7 @@ local function confirm_batch_operation(verb, items, warning)
 end
 
 ---Executes batch operation with progress tracking and error handling
----@param items table[] Array of items to process
+---@param items table[] Array of items to process (can be strings, file objects, or restore items)
 ---@param operation_name string Name of operation for notifications
 ---@param operation_func function Function that takes an item and returns error_string|nil
 ---@return integer, integer -- success_count, failed_count
@@ -579,15 +683,19 @@ local function cmd_empty_trash_by_days(config)
 	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
 end
 
-local function cmd_delete_selection()
+local function cmd_delete_selection(config)
 	-- Validate selection and get filenames
-	local selected_paths, item_names = validate_and_get_selection("deletion")
-	if not selected_paths or not item_names then
+	local selected_paths, _ = validate_and_get_selection("deletion")
+	if not selected_paths then
 		return
 	end
 
+	-- Get file objects with sizes for confirmation dialog
+	local trash_files_dir = config.trash_dir .. "files/"
+	local file_objects = get_files_with_sizes(selected_paths, trash_files_dir)
+
 	-- Confirm deletion from trash with warning
-	if not confirm_batch_operation("permanently delete", item_names, "This action cannot be undone!") then
+	if not confirm_batch_operation("permanently delete", file_objects, "This action cannot be undone!") then
 		return
 	end
 
@@ -615,7 +723,7 @@ local function cmd_delete_selection()
 	report_operation_results("deleting", success_count, failed_count)
 end
 
-local function cmd_restore_selection()
+local function cmd_restore_selection(config)
 	-- Validate selection and get filenames
 	local selected_paths, _ = validate_and_get_selection("restoration")
 	if not selected_paths then
@@ -666,14 +774,37 @@ local function cmd_restore_selection()
 		return
 	end
 
-	-- Build item names for confirmation dialog using more efficient method
-	local restore_item_names = {}
-	for i = 1, restore_count do
-		restore_item_names[i] = restore_items[i].name
+	-- Add size information to restore_items
+	local trash_files_dir = config.trash_dir .. "files/"
+	local normalized_trash_files_dir = trash_files_dir
+	if not normalized_trash_files_dir:match("/$") then
+		normalized_trash_files_dir = normalized_trash_files_dir .. "/"
 	end
 
-	-- Confirm restoration
-	if not confirm_batch_operation("restore", restore_item_names, nil) then
+	for i = 1, restore_count do
+		local item = restore_items[i]
+		-- Construct full path to the file in trash files directory
+		local full_path = normalized_trash_files_dir .. item.name
+
+		-- Get file size using existing utility function
+		local bytes, size_err = get_file_size(full_path)
+		local formatted_size
+
+		if size_err then
+			-- Log the error but continue processing other files
+			debug("Could not get size for file %s: %s", item.name, size_err)
+			formatted_size = "unknown size"
+		else
+			-- Format the size using existing utility function
+			formatted_size = format_file_size(bytes)
+		end
+
+		-- Add size to the restore item
+		item.size = formatted_size
+	end
+
+	-- Confirm restoration with size information
+	if not confirm_batch_operation("restore", restore_items, nil) then
 		return
 	end
 
@@ -763,9 +894,9 @@ function M:entry(job)
 	if action == "open" then
 		cmd_open_trash(config)
 	elseif action == "delete" then
-		cmd_delete_selection()
+		cmd_delete_selection(config)
 	elseif action == "restore" then
-		cmd_restore_selection()
+		cmd_restore_selection(config)
 	elseif action == "emptyDays" then
 		cmd_empty_trash_by_days(config)
 	elseif action == "empty" then
