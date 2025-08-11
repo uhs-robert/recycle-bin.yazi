@@ -5,14 +5,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues-raw/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/issues)
 
-> [!WARNING]
-> This is currently in development and not actually ready. Hoping to have it ready by September of 2025 if not earlier since I like to dumpster dive in my trash.
+A minimal and fast **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
 
----
-
-A minimal, fast **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
-
-Browse your trash in style straight from the terminal. Select the files you want to restore, select files to permanently delete, or just empty the bin.
+Browse and manage your Trash straight from the terminal. Use this plugin to open your Trash and then select the files you want to restore or permanently delete. You may also remotely remove all files from the trash or only remove files deleted `<days>` ago.
 
 > [!NOTE]
 >
@@ -28,9 +23,16 @@ Browse your trash in style straight from the terminal. Select the files you want
 
 ## 🧠 What it does under the hood
 
-This plugin serves as a wrapper for the `trash-cli` command, integrating it seamlessly with Yazi.
+This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafrancia/trash-cli) command, integrating it seamlessly with Yazi.
 
 ## ✨ Features
+
+- **📂 Browse trash**: Navigate to trash directory directly in Yazi
+- **🔄 Restore files**: Bulk restore selected files from trash to their original locations
+- **🗑️ Empty trash**: Clear entire trash with confirmation dialog
+- **📅 Empty by days**: Remove trash items older than specified number of days
+- **❌ Permanent delete**: Delete selected files from trash permanently
+- **🔧 Configurable**: Customize trash directory
 
 ## 📋 Requirements
 
@@ -61,19 +63,7 @@ To customize plugin behavior, you may pass a config table to `setup()` (default 
 ```lua
 require("recycle-bin"):setup({
   -- Trash directory
-  trash_dir = "~/.local/share/Trash/files/",
-
-  -- Picker UI settings
-  ui = {
-    -- Maximum number of items to show in the menu picker.
-    -- If the list exceeds this number, a different picker (like fzf) is used.
-    menu_max = 15, -- Recommended: 10–20. Max: 36.
-
-    -- Picker strategy:
-    -- "auto": uses menu if items <= menu_max, otherwise fzf (if available) or a filterable list
-    -- "fzf": always use fzf if available, otherwise fallback to a filterable list
-    picker = "auto", -- "auto" | "fzf"
-  },
+  trash_dir = "~/.local/share/Trash/",
 })
 ```
 
@@ -84,8 +74,56 @@ Add the following to your `~/.config/yazi/keymap.toml`. You can customize keybin
 ```toml
 [mgr]
 prepend_keymap = [
+  # Go to Trash directory
+  { on = [
+    "g",
+    "t",
+  ], run = "plugin recycle-bin open", desc = "Go to Trash" },
 
+
+  # Open the trash
+  { on = [
+    "R",
+    "o",
+  ], run = "plugin recycle-bin open", desc = "Open Trash" },
+
+  # Empty the trash
+  { on = [
+    "R",
+    "e",
+  ], run = "plugin recycle-bin empty", desc = "Empty trash" },
+
+  # Delete selected items from trash
+  { on = [
+    "R",
+    "d",
+  ], run = "plugin recycle-bin delete", desc = "Delete from trash" },
+
+  # Empty trash by days since deleted
+  { on = [
+    "R",
+    "D",
+  ], run = "plugin recycle-bin emptyDays", desc = "Empty by days deleted" },
+
+  # Restore selected items from trash
+  { on = [
+    "R",
+    "r",
+  ], run = "plugin recycle-bin restore", desc = "Restore from trash" },
 ]
 ```
 
 ## 🚀 Usage
+
+### Basic Operations
+
+1. **Navigate to trash**: Press `gt` or `Ro` to go directly to the trash directory
+2. **Restore files**: Select files in trash using Yazi's native selection and press `Rr` to restore them
+3. **Delete permanently**: Select files in trash and press `Rd` to delete them permanently
+4. **Empty trash**: Press `Re` to empty the entire trash bin (with confirmation)
+5. **Empty by age**: Press `RD` to empty trash items older than specified days
+
+### Tips
+
+- Use Yazi's visual selection (`v` or `V`) or toggle selection (press `Space` on files) to select multiple files from the Trash before restoring or deleting
+- The plugin will show a confirmation dialog for destructive operations
