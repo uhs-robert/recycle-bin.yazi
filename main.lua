@@ -385,6 +385,30 @@ local function is_dir(url)
 end
 
 --=========== Trash helpers =================================================
+---Get mapping of filenames to original paths from trash-list
+---@return table<string, string>, string|nil -- filename_to_path_map, error
+local function get_trash_file_mappings()
+	local err, output = run_command("trash-list", {})
+	if err then
+		return {}, err
+	end
+
+	local mappings = {}
+	if output and output.stdout ~= "" then
+		for line in output.stdout:gmatch(PATTERNS.line_break) do
+			local timestamp, original_path = line:match(PATTERNS.trash_list)
+			if timestamp and original_path then
+				local filename = original_path:match(PATTERNS.filename) or original_path
+				mappings[filename] = original_path
+				debug("Mapped trash file: %s -> %s", filename, original_path)
+			end
+		end
+	end
+
+	debug("Created %d trash file mappings", #mappings)
+	return mappings, nil
+end
+
 ---Verify trash dir exists
 ---@param config table | nil
 local function check_has_trash_directory(config)
@@ -719,8 +743,16 @@ local function cmd_restore_selection(config)
 	if not selected_paths then
 		return
 	end
+	debug(selected_paths)
 
-	-- Direct restore approach - use trash-restore with filename patterns
+	-- Get trash file mappings from trash-list
+	local trash_mappings, mapping_err = get_trash_file_mappings()
+	if mapping_err then
+		Notify.error("Failed to get trash mappings: %s", mapping_err)
+		return
+	end
+
+	-- Prepare restore items with original paths and size information
 	local restore_items = {}
 	local trash_files_dir = config.trash_dir .. "files/"
 	local normalized_trash_files_dir = trash_files_dir
@@ -728,20 +760,30 @@ local function cmd_restore_selection(config)
 		normalized_trash_files_dir = normalized_trash_files_dir .. "/"
 	end
 
-	-- Prepare items with size information
-	for i, path in ipairs(selected_paths) do
+	for _, path in ipairs(selected_paths) do
 		local filename = path:match(PATTERNS.filename) or path
-		local full_path = normalized_trash_files_dir .. filename
+		local original_path = trash_mappings[filename]
 
-		-- Get file size
-		local bytes, size_err = get_file_size(full_path)
-		local formatted_size = size_err and "unknown size" or format_file_size(bytes)
+		if original_path then
+			-- Get file size from trash files directory
+			local full_path = normalized_trash_files_dir .. filename
+			local bytes, size_err = get_file_size(full_path)
+			local formatted_size = size_err and "unknown size" or format_file_size(bytes)
 
-		restore_items[i] = {
-			path = path,
-			name = filename,
-			size = formatted_size,
-		}
+			restore_items[#restore_items + 1] = {
+				filename = filename,
+				original_path = original_path,
+				name = filename,
+				size = formatted_size,
+			}
+		else
+			Notify.warn("Could not find original path for file: %s", filename)
+		end
+	end
+
+	if #restore_items == 0 then
+		Notify.error("No files found in trash for restoration")
+		return
 	end
 
 	-- Confirm restoration
@@ -749,10 +791,11 @@ local function cmd_restore_selection(config)
 		return
 	end
 
-	-- Create operation function for direct restore
+	-- Create operation function for restore using original paths
 	local function restore_operation(item)
-		-- Use trash-restore with filepath pattern matching
-		local restore_err, _ = run_command("trash-restore", { item.path }, "0\n")
+		debug("Restoring %s from original path: %s", item.filename, item.original_path)
+		-- Use trash-restore with the original file path as argument and auto-select first match
+		local restore_err, _ = run_command("trash-restore", { item.original_path }, "0\n")
 		if restore_err then
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			return restore_err
