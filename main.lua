@@ -236,7 +236,6 @@ local function is_dir(url)
 end
 
 --=========== Trash helpers =================================================
-
 ---Verify trash dir exists
 ---@param config table | nil
 local function check_has_trash_directory(config)
@@ -319,7 +318,6 @@ local function get_trash_data(config)
 end
 
 --=========== File Selection =================================================
-
 ---Get selected files from Yazi (based on archivemount.yazi pattern)
 ---@return string[]
 local get_selected_files = ya.sync(function()
@@ -333,8 +331,104 @@ local get_selected_files = ya.sync(function()
 	return paths
 end)
 
---=========== api actions =================================================
+---Validates file selection and extracts filenames
+---@param operation_name string The name of the operation (for logging/notifications)
+---@return string[]|nil, string[]|nil -- selected_paths, item_names (or nil if validation fails)
+local function validate_and_get_selection(operation_name)
+	-- Get selected files from Yazi
+	local selected_paths = get_selected_files()
+	if #selected_paths == 0 then
+		Notify.warn("No files selected for " .. operation_name)
+		return nil, nil
+	end
 
+	debug("Selected paths for %s: %s", operation_name, table.concat(selected_paths, ", "))
+
+	-- Extract filenames for confirmation dialog
+	local filename_pattern = "([^/]+)$"
+	local item_names = {}
+	for i, path in ipairs(selected_paths) do
+		local filename = path:match(filename_pattern) or path
+		item_names[i] = filename
+	end
+
+	return selected_paths, item_names
+end
+
+--=========== Batch Operations =================================================
+---Shows standardized confirmation dialog for batch operations
+---@param title string Dialog title
+---@param verb string Action verb (e.g., "delete", "restore")
+---@param items string[] List of item names
+---@param warning string|nil Optional warning message
+---@return boolean
+local function confirm_batch_operation(title, verb, items, warning)
+	local body_parts = {}
+
+	-- Add main confirmation message
+	body_parts[#body_parts + 1] = string.format(
+		"%s %d file(s) from trash:\n%s",
+		verb:gsub("^%l", string.upper),
+		#items,
+		table.concat(items, "\n")
+	)
+
+	-- Add warning if provided
+	if warning then
+		body_parts[#body_parts + 1] = "\n" .. warning
+	end
+
+	local confirmation = confirm(title, table.concat(body_parts, ""))
+	if not confirmation then
+		Notify.info(verb:gsub("^%l", string.upper) .. " cancelled")
+		return false
+	end
+
+	return true
+end
+
+---Executes batch operation with progress tracking and error handling
+---@param items table[] Array of items to process
+---@param operation_name string Name of operation for notifications
+---@param operation_func function Function that takes an item and returns error_string|nil
+---@return integer, integer -- success_count, failed_count
+local function execute_batch_operation(items, operation_name, operation_func)
+	Notify.info(operation_name:gsub("^%l", string.upper) .. " %d file(s)...", #items)
+
+	local success_count = 0
+	local failed_count = 0
+
+	for _, item in ipairs(items) do
+		local err = operation_func(item)
+		if err then
+			failed_count = failed_count + 1
+		else
+			success_count = success_count + 1
+		end
+	end
+
+	return success_count, failed_count
+end
+
+---Reports standardized operation results
+---@param operation_name string Name of the operation
+---@param success_count integer Number of successful operations
+---@param failed_count integer Number of failed operations
+local function report_operation_results(operation_name, success_count, failed_count)
+	local past_tense = operation_name == "deleting" and "deleted"
+		or operation_name == "restoring" and "restored"
+		or operation_name .. "d"
+
+	if success_count > 0 and failed_count == 0 then
+		Notify.info("Successfully %s %d file(s)", past_tense, success_count)
+	elseif success_count > 0 and failed_count > 0 then
+		Notify.warn("%s %d file(s), failed %d", past_tense:gsub("^%l", string.upper), success_count, failed_count)
+	else
+		Notify.error("Failed to %s any files", operation_name:gsub("ing$", ""))
+	end
+end
+
+--=========== api actions =================================================
 local function cmd_open_trash(config)
 	local trash_files_dir = config.trash_dir .. "files"
 
@@ -436,44 +530,29 @@ local function cmd_empty_trash_by_days(config)
 end
 
 local function cmd_delete_selection()
-	-- Get selected files from Yazi
-	local selected_paths = get_selected_files()
-	if #selected_paths == 0 then
-		Notify.warn("No files selected for deletion")
+	-- Validate selection and get filenames
+	local selected_paths, item_names = validate_and_get_selection("deletion")
+	if not selected_paths or not item_names then
 		return
 	end
 
-	debug("Selected paths for deletion: %s", table.concat(selected_paths, ", "))
-
-	-- Extract filenames for confirmation dialog
-	local filename_pattern = "([^/]+)$"
-	local item_names = {}
-	for i, path in ipairs(selected_paths) do
-		local filename = path:match(filename_pattern) or path
-		item_names[i] = filename
-	end
-
-	-- Confirm deletion from trash
-	local confirmation = confirm(
-		"Delete from Trash",
-		string.format(
-			"Permanently delete %d file(s) from trash:\n%s\n\nThis action cannot be undone!",
-			#selected_paths,
-			table.concat(item_names, "\n")
+	-- Confirm deletion from trash with warning
+	if
+		not confirm_batch_operation(
+			"Delete from Trash",
+			"permanently delete",
+			item_names,
+			"This action cannot be undone!"
 		)
-	)
-	if not confirmation then
-		Notify.info("Deletion cancelled")
+	then
 		return
 	end
 
-	-- Perform permanent deletion for each item
-	Notify.info("Permanently deleting %d file(s) from trash...", #selected_paths)
+	-- Pre-compile pattern for performance
+	local filename_pattern = "([^/]+)$"
 
-	local deleted_count = 0
-	local failed_count = 0
-
-	for _, path in ipairs(selected_paths) do
+	-- Create operation function for delete
+	local function delete_operation(path)
 		local filename = path:match(filename_pattern) or path
 
 		-- Use trash-rm with the filename as pattern
@@ -481,32 +560,27 @@ local function cmd_delete_selection()
 		local delete_err, delete_output = run_command("trash-rm", { filename })
 		if delete_err then
 			Notify.error("Failed to delete %s: %s", filename, delete_err)
-			failed_count = failed_count + 1
+			return delete_err
 		else
 			debug("Successfully deleted from trash: %s", filename)
-			deleted_count = deleted_count + 1
+			return nil
 		end
 	end
 
-	-- Final notification
-	if deleted_count > 0 and failed_count == 0 then
-		Notify.info("Successfully deleted %d file(s) from trash", deleted_count)
-	elseif deleted_count > 0 and failed_count > 0 then
-		Notify.warn("Deleted %d file(s), failed %d", deleted_count, failed_count)
-	else
-		Notify.error("Failed to delete any files from trash")
-	end
+	-- Execute batch operation
+	local success_count, failed_count =
+		execute_batch_operation(selected_paths, "permanently deleting", delete_operation)
+
+	-- Report results
+	report_operation_results("deleting", success_count, failed_count)
 end
 
 local function cmd_restore_selection()
-	-- Get selected files from Yazi
-	local selected_paths = get_selected_files()
-	if #selected_paths == 0 then
-		Notify.warn("No files selected for restoration")
+	-- Validate selection and get filenames
+	local selected_paths, item_names = validate_and_get_selection("restoration")
+	if not selected_paths then
 		return
 	end
-
-	debug("Selected paths for restoration: %s", table.concat(selected_paths, ", "))
 
 	-- Pre-compile patterns for better performance
 	local filename_pattern = "([^/]+)$"
@@ -555,51 +629,37 @@ local function cmd_restore_selection()
 	end
 
 	-- Build item names for confirmation dialog
-	local item_names = {}
+	local restore_item_names = {}
 	for i, item in ipairs(restore_items) do
-		item_names[i] = item.name
+		restore_item_names[i] = item.name
 	end
 
 	-- Confirm restoration
-	local confirmation = confirm(
-		"Restore Files",
-		string.format("Restore %d file(s) from trash:\n%s", #restore_items, table.concat(item_names, "\n"))
-	)
-	if not confirmation then
-		Notify.info("Restoration cancelled")
+	if not confirm_batch_operation("Restore Files", "restore", restore_item_names, nil) then
 		return
 	end
 
-	-- Perform restoration for each item
-	Notify.info("Restoring %d file(s)...", #restore_items)
-
-	local restored_count = 0
-	local failed_count = 0
-
-	for _, item in ipairs(restore_items) do
+	-- Create operation function for restore
+	local function restore_operation(item)
 		-- Use trash-restore with the original path
 		local restore_err, restore_output = run_command("trash-restore", { item.path }, "0\n")
 		if restore_err then
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
-			failed_count = failed_count + 1
+			return restore_err
 		else
 			debug("Successfully restored: %s", item.name)
-			restored_count = restored_count + 1
+			return nil
 		end
 	end
 
-	-- Final notification
-	if restored_count > 0 and failed_count == 0 then
-		Notify.info("Successfully restored %d file(s)", restored_count)
-	elseif restored_count > 0 and failed_count > 0 then
-		Notify.warn("Restored %d file(s), failed %d", restored_count, failed_count)
-	else
-		Notify.error("Failed to restore any files")
-	end
+	-- Execute batch operation
+	local success_count, failed_count = execute_batch_operation(restore_items, "restoring", restore_operation)
+
+	-- Report results
+	report_operation_results("restoring", success_count, failed_count)
 end
 
 --=========== init requirements ================================================
-
 ---Verify all dependencies
 local function check_dependencies()
 	-- Check for trash-cli
