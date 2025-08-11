@@ -2,7 +2,7 @@
 -- Trash management system for Yazi
 
 --=========== Plugin Settings =================================================
-local isDebugEnabled = trash
+local isDebugEnabled = true
 local M = {}
 local PLUGIN_NAME = "recycle-bin"
 local USER_ID = ya.uid()
@@ -383,19 +383,16 @@ local function is_dir(url)
 	return cha and cha.is_dir or false
 end
 
----Check if a directory is empty (more efficient than reading all entries)
----@param url Url
----@return boolean
-local function is_dir_empty(url)
-	local files, _ = fs.read_dir(url, { limit = 1 })
-	return type(files) == "table" and #files == 0
-end
-
 --=========== Trash helpers =================================================
 
 ---Verify trash dir exists
-local function check_has_trash_directory()
-	local config = get_state(STATE_KEY.CONFIG)
+---@param config table | nil
+local function check_has_trash_directory(config)
+	-- Get Config
+	if not config then
+		config = get_state(STATE_KEY.CONFIG)
+	end
+	-- Verify trash dir
 	local trash_dir = config.trash_dir
 	local trash_url = Url(trash_dir)
 
@@ -440,6 +437,36 @@ local function get_trash_size(config)
 	return size_info or "unknown size", nil
 end
 
+---Get size of trash files directory
+---@param config table
+---@return {count: integer, size: string}|table, {type: string, msg: string}|nil
+local function get_trash_data(config)
+	-- Default values
+	local count = 0
+	local size = "0M"
+
+	-- Get trash info
+	local item_count, count_err = get_trash_item_count()
+	if count_err then
+		return { count, size }, { type = "error", msg = string.format("Failed to get trash contents: %s", count_err) }
+	end
+
+	if item_count == 0 then
+		return { count, size }, { type = "info", msg = "Trash is already empty" }
+	end
+
+	local size_info, size_err = get_trash_size(config)
+	if size_err then
+		debug("Failed to get trash size: %s", size_err)
+	end
+
+	return {
+		count = item_count,
+		size = size_info,
+	}, nil
+end
+
+
 --=========== api actions =================================================
 
 local function cmd_open_trash(config)
@@ -459,29 +486,19 @@ end
 
 local function cmd_empty_trash(config)
 	-- Check if trash directory exists
-	if not check_has_trash_directory() then
+	if not check_has_trash_directory(config) then
 		return
 	end
 
-	-- Get trash info
-	local item_count, count_err = get_trash_item_count()
-	if count_err then
-		Notify.error("Failed to get trash contents: %s", count_err)
+	-- Get trash data
+	local data, data_err = get_trash_data(config)
+	if data_err then
+		Notify[data_err.type](data_err.msg)
 		return
-	end
-
-	if item_count == 0 then
-		Notify.info("Trash is already empty")
-		return
-	end
-
-	local size_info, size_err = get_trash_size(config)
-	if size_err then
-		debug("Failed to get trash size: %s", size_err)
 	end
 
 	-- Show confirmation dialog with details
-	local body = string.format("Are you sure you want to delete these %d items (%s)?", item_count, size_info)
+	local body = string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)
 	local confirmation = confirm("Empty Trash", body)
 	if not confirmation then
 		Notify.info("Empty trash cancelled")
@@ -489,20 +506,24 @@ local function cmd_empty_trash(config)
 	end
 
 	-- Execute trash-empty command
-	Notify.info("Emptying trash...")
 	local err, output = run_command("trash-empty", {}, "y\n")
-
 	if err then
 		Notify.error("Failed to empty trash: %s", err)
 		return
 	end
-
-	Notify.info("Trash emptied successfully (%d items, %s freed)", item_count, size_info)
+	Notify.info("Trash emptied successfully (%d items, %s freed)", data.count, data.size)
 end
 
 local function cmd_empty_trash_by_days(config)
 	-- Check if trash directory exists
-	if not check_has_trash_directory() then
+	if not check_has_trash_directory(config) then
+		return
+	end
+
+	-- Get trash data prior to the operation to calculate difference
+	local begin_data, begin_err = get_trash_data(config)
+	if begin_err then
+		Notify[begin_err.type](begin_err.msg)
 		return
 	end
 
@@ -530,14 +551,23 @@ local function cmd_empty_trash_by_days(config)
 
 	-- Execute trash-empty command with days parameter
 	Notify.info("Removing trash items older than %d days...", days)
-	local err, output = run_command("trash-empty", { tostring(days) })
-
+	local err, output = run_command("trash-empty", { tostring(days) }, "y\n")
 	if err then
 		Notify.error("Failed to empty trash by days: %s", err)
 		return
 	end
 
-	Notify.info("Successfully removed trash items older than %d days", days)
+	-- Get trash data after the operation to calculate difference
+	local end_data, end_err = get_trash_data(config)
+	if end_err then
+		Notify[end_err.type](end_err.msg)
+		return
+	end
+
+	-- Calculate items deleted
+	local items_deleted = begin_data.count - end_data.count
+
+	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
 end
 
 local function cmd_delete_selection(config) end
