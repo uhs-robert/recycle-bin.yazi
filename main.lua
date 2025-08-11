@@ -2,7 +2,7 @@
 -- Trash management system for Yazi
 
 --=========== Plugin Settings =================================================
-local isDebugEnabled = true
+local isDebugEnabled = false
 local M = {}
 local PLUGIN_NAME = "recycle-bin"
 local USER_ID = ya.uid()
@@ -465,7 +465,7 @@ local function cmd_empty_trash(config)
 	end
 
 	-- Execute trash-empty command
-	local err, output = run_command("trash-empty", {}, "y\n")
+	local err, _ = run_command("trash-empty", {}, "y\n")
 	if err then
 		Notify.error("Failed to empty trash: %s", err)
 		return
@@ -510,7 +510,7 @@ local function cmd_empty_trash_by_days(config)
 
 	-- Execute trash-empty command with days parameter
 	Notify.info("Removing trash items older than %d days...", days)
-	local err, output = run_command("trash-empty", { tostring(days) }, "y\n")
+	local err, _ = run_command("trash-empty", { tostring(days) }, "y\n")
 	if err then
 		Notify.error("Failed to empty trash by days: %s", err)
 		return
@@ -557,7 +557,7 @@ local function cmd_delete_selection()
 
 		-- Use trash-rm with the filename as pattern
 		-- trash-rm uses fnmatch patterns, so we pass the filename directly
-		local delete_err, delete_output = run_command("trash-rm", { filename })
+		local delete_err, _ = run_command("trash-rm", { filename })
 		if delete_err then
 			Notify.error("Failed to delete %s: %s", filename, delete_err)
 			return delete_err
@@ -577,7 +577,7 @@ end
 
 local function cmd_restore_selection()
 	-- Validate selection and get filenames
-	local selected_paths, item_names = validate_and_get_selection("restoration")
+	local selected_paths, _ = validate_and_get_selection("restoration")
 	if not selected_paths then
 		return
 	end
@@ -642,7 +642,7 @@ local function cmd_restore_selection()
 	-- Create operation function for restore
 	local function restore_operation(item)
 		-- Use trash-restore with the original path
-		local restore_err, restore_output = run_command("trash-restore", { item.path }, "0\n")
+		local restore_err, _ = run_command("trash-restore", { item.path }, "0\n")
 		if restore_err then
 			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			return restore_err
