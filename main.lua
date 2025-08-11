@@ -29,7 +29,6 @@ local PATTERNS = {
 ---@enum
 local STATE_KEY = {
 	CONFIG = "CONFIG",
-	HAS_FZF = "HAS_FZF",
 }
 
 --================= Notify / Logger ===========================================
@@ -682,10 +681,6 @@ local function check_dependencies()
 		Notify.error("trashcli not found. Is it installed and in PATH? PATH=" .. path)
 		return false
 	end
-
-	-- Check for fzf (optional dependency)
-	local fzf_err, _ = run_command("fzf", { "--version" }, nil, true)
-	set_state(STATE_KEY.HAS_FZF, not fzf_err)
 	return true
 end
 
