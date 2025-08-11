@@ -500,7 +500,45 @@ local function cmd_empty_trash(config)
 	Notify.info("Trash emptied successfully (%d items, %s freed)", item_count, size_info)
 end
 
-local function cmd_empty_trash_by_days(config) end
+local function cmd_empty_trash_by_days(config)
+	-- Check if trash directory exists
+	if not check_has_trash_directory() then
+		return
+	end
+
+	-- Prompt user for number of days
+	local days_input = prompt("Delete trash items older than (days)", false, "30")
+	if not days_input then
+		Notify.info("Empty trash by days cancelled")
+		return
+	end
+
+	-- Validate input is a positive integer
+	local days = tonumber(days_input)
+	if not days or days <= 0 or math.floor(days) ~= days then
+		Notify.error("Invalid input: please enter a positive integer for days")
+		return
+	end
+
+	-- Show confirmation dialog
+	local body = string.format("Are you sure you want to delete all trash items older than %d days?", days)
+	local confirmation = confirm("Empty Trash by Days", body)
+	if not confirmation then
+		Notify.info("Empty trash by days cancelled")
+		return
+	end
+
+	-- Execute trash-empty command with days parameter
+	Notify.info("Removing trash items older than %d days...", days)
+	local err, output = run_command("trash-empty", { tostring(days) })
+
+	if err then
+		Notify.error("Failed to empty trash by days: %s", err)
+		return
+	end
+
+	Notify.info("Successfully removed trash items older than %d days", days)
+end
 
 local function cmd_delete_selection(config) end
 
