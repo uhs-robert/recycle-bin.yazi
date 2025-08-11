@@ -9,7 +9,7 @@ A fast, minimal **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) t
 
 Browse, restore, or permanently delete trashed files without leaving your terminal. Includes age-based cleanup and bulk actions.
 
-https://github.com/user-attachments/assets/1f7ab9b2-33e3-4262-94c5-b27ad9dc142e
+<https://github.com/user-attachments/assets/1f7ab9b2-33e3-4262-94c5-b27ad9dc142e>
 
 > [!NOTE]
 >
@@ -121,7 +121,7 @@ prepend_keymap = [
 5. **Empty by age**: Press `RD` to empty trash items older than specified days (defaults to 30 days)
 
 > [!TIP]
-> Use Yazi's visual selection (`v` or `V`) or toggle selection (press `Space` on files) to select multiple files from the Trash before restoring or deleting
+> Use Yazi's visual selection (`v` or `V` followed by `ESC` to select items) or toggle select (press `Space` on individual files) to select multiple files from the Trash before restoring or deleting
 >
 > The plugin will show a confirmation dialog for destructive operations
 
@@ -145,3 +145,15 @@ prepend_keymap = [
 
 - Make sure you have files selected in Yazi before running restore/delete operations
 - Use `Space` to select files or `v`/`V` for visual selection mode
+
+## 💡 Recommendations
+
+### Companion Plugin
+
+For an even better trash management experience, pair this plugin with:
+
+**[restore.yazi](https://github.com/boydaihungst/restore.yazi)** - Undo your delete history by your latest deleted files/folders
+
+This companion plugin adds an "undo" feature that lets you press `u` to instantly restore the last deleted file. You can keep hitting `u` repeatedly to step through your entire delete history, making accidental deletions a thing of the past.
+
+**Perfect combination:** Use `restore.yazi` for quick single-file undos and `recycle-bin.yazi` for comprehensive trash management and bulk operations.
