@@ -435,7 +435,68 @@ local function cmd_empty_trash_by_days(config)
 	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
 end
 
-local function cmd_delete_selection() end
+local function cmd_delete_selection()
+	-- Get selected files from Yazi
+	local selected_paths = get_selected_files()
+	if #selected_paths == 0 then
+		Notify.warn("No files selected for deletion")
+		return
+	end
+
+	debug("Selected paths for deletion: %s", table.concat(selected_paths, ", "))
+
+	-- Extract filenames for confirmation dialog
+	local filename_pattern = "([^/]+)$"
+	local item_names = {}
+	for i, path in ipairs(selected_paths) do
+		local filename = path:match(filename_pattern) or path
+		item_names[i] = filename
+	end
+
+	-- Confirm deletion from trash
+	local confirmation = confirm(
+		"Delete from Trash",
+		string.format(
+			"Permanently delete %d file(s) from trash:\n%s\n\nThis action cannot be undone!",
+			#selected_paths,
+			table.concat(item_names, "\n")
+		)
+	)
+	if not confirmation then
+		Notify.info("Deletion cancelled")
+		return
+	end
+
+	-- Perform permanent deletion for each item
+	Notify.info("Permanently deleting %d file(s) from trash...", #selected_paths)
+
+	local deleted_count = 0
+	local failed_count = 0
+
+	for _, path in ipairs(selected_paths) do
+		local filename = path:match(filename_pattern) or path
+
+		-- Use trash-rm with the filename as pattern
+		-- trash-rm uses fnmatch patterns, so we pass the filename directly
+		local delete_err, delete_output = run_command("trash-rm", { filename })
+		if delete_err then
+			Notify.error("Failed to delete %s: %s", filename, delete_err)
+			failed_count = failed_count + 1
+		else
+			debug("Successfully deleted from trash: %s", filename)
+			deleted_count = deleted_count + 1
+		end
+	end
+
+	-- Final notification
+	if deleted_count > 0 and failed_count == 0 then
+		Notify.info("Successfully deleted %d file(s) from trash", deleted_count)
+	elseif deleted_count > 0 and failed_count > 0 then
+		Notify.warn("Deleted %d file(s), failed %d", deleted_count, failed_count)
+	else
+		Notify.error("Failed to delete any files from trash")
+	end
+end
 
 local function cmd_restore_selection()
 	-- Get selected files from Yazi
