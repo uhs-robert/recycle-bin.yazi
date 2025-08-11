@@ -447,11 +447,15 @@ local function cmd_restore_selection()
 
 	debug("Selected paths for restoration: %s", table.concat(selected_paths, ", "))
 
-	-- Extract just the filename from each selected path
-	local selected_filenames = {}
+	-- Pre-compile patterns for better performance
+	local filename_pattern = "([^/]+)$"
+	local line_pattern = "^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d) (.+)$"
+
+	-- Build lookup table for O(1) filename matching
+	local selected_lookup = {}
 	for _, path in ipairs(selected_paths) do
-		local filename = path:match("([^/]+)$") or path
-		table.insert(selected_filenames, filename)
+		local filename = path:match(filename_pattern) or path
+		selected_lookup[filename] = true
 	end
 
 	-- Get trash list to find original paths
@@ -462,60 +466,63 @@ local function cmd_restore_selection()
 	end
 
 	-- Parse trash-list output and match with selected filenames
-	local original_paths = {}
-	local item_names = {}
+	-- Use single table to store related data for better memory efficiency
+	local restore_items = {}
 
 	debug(list_output)
 	debug(list_output.stdout)
 
-	for line in string.gmatch(list_output.stdout, "[^\r\n]+") do
+	for line in list_output.stdout:gmatch("[^\r\n]+") do
 		-- Parse format: "YYYY-MM-DD HH:MM:SS /full/path/to/file"
-		local datetime, original_path = line:match("^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d) (.+)$")
+		local datetime, original_path = line:match(line_pattern)
 		if datetime and original_path then
-			local filename = original_path:match("([^/]+)$") or original_path
+			local filename = original_path:match(filename_pattern) or original_path
 
-			-- Check if this file is in our selection
-			for _, selected_filename in ipairs(selected_filenames) do
-				if filename == selected_filename then
-					table.insert(original_paths, original_path)
-					table.insert(item_names, filename)
-					break
-				end
+			-- O(1) lookup instead of O(n) search
+			if selected_lookup[filename] then
+				restore_items[#restore_items + 1] = {
+					path = original_path,
+					name = filename,
+				}
 			end
 		end
 	end
 
-	if #original_paths == 0 then
+	if #restore_items == 0 then
 		Notify.warn("No matching files found in trash")
 		return
+	end
+
+	-- Build item names for confirmation dialog
+	local item_names = {}
+	for i, item in ipairs(restore_items) do
+		item_names[i] = item.name
 	end
 
 	-- Confirm restoration
 	local confirmation = confirm(
 		"Restore Files",
-		string.format("Restore %d file(s) from trash:\n%s", #original_paths, table.concat(item_names, "\n"))
+		string.format("Restore %d file(s) from trash:\n%s", #restore_items, table.concat(item_names, "\n"))
 	)
 	if not confirmation then
 		Notify.info("Restoration cancelled")
 		return
 	end
 
-	-- Perform restoration for each original path
-	Notify.info("Restoring %d file(s)...", #original_paths)
+	-- Perform restoration for each item
+	Notify.info("Restoring %d file(s)...", #restore_items)
 
 	local restored_count = 0
 	local failed_count = 0
 
-	for _, original_path in ipairs(original_paths) do
+	for _, item in ipairs(restore_items) do
 		-- Use trash-restore with the original path
-		local restore_err, restore_output = run_command("trash-restore", { original_path }, "0\n")
+		local restore_err, restore_output = run_command("trash-restore", { item.path }, "0\n")
 		if restore_err then
-			local filename = original_path:match("([^/]+)$") or original_path
-			Notify.error("Failed to restore %s: %s", filename, restore_err)
+			Notify.error("Failed to restore %s: %s", item.name, restore_err)
 			failed_count = failed_count + 1
 		else
-			local filename = original_path:match("([^/]+)$") or original_path
-			debug("Successfully restored: %s", filename)
+			debug("Successfully restored: %s", item.name)
 			restored_count = restored_count + 1
 		end
 	end
