@@ -45,7 +45,7 @@ Install the plugin via Yazi's package manager:
 
 ```sh
 # via Yazi’s package manager
-ya pack -a uhs-robert/recycle-bin
+ya pkg add uhs-robert/recycle-bin
 ```
 
 Then add the following to your `~/.config/yazi/init.lua` to enable the plugin with default settings:
