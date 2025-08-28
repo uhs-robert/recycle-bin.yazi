@@ -8,9 +8,6 @@ local PLUGIN_NAME = "recycle-bin"
 local USER_ID = ya.uid()
 local XDG_RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR") or ("/run/user/" .. USER_ID)
 
---=========== Paths ===========================================================
-local HOME = os.getenv("HOME")
-
 --=========== Compiled Patterns (Performance Optimization) ==================
 -- Pre-compiled string patterns for better performance
 local PATTERNS = {
@@ -148,7 +145,7 @@ local function run_command(cmd, args, input, is_silent)
 		debug(msgPrefix .. "stdout: %s", output.stdout)
 	end
 	if output.status and output.status.code ~= 0 and not is_silent then
-		Notify.warn(msgPrefix .. "Error code `%s`, success: `%s`", output.status.code, tostring(output.status.success))
+		debug(msgPrefix .. "Error code `%s`, success: `%s`", output.status.code, tostring(output.status.success))
 	end
 
 	-- Handle child output error
@@ -782,7 +779,7 @@ local function cmd_empty_trash(config)
 	-- Execute trash-empty command
 	local err, _ = run_command("trash-empty", {}, "y\n")
 	if err then
-		Notify.error("Failed to empty trash: %s", err)
+		Notify.error("Failed to empty trash: %s. Try 'trash-empty' manually to debug", err)
 		return
 	end
 	Notify.info("Trash emptied successfully (%d items, %s freed)", data.count, data.size)
@@ -839,7 +836,11 @@ local function cmd_empty_trash_by_days(config)
 
 	-- Calculate items deleted
 	local items_deleted = begin_data.count - end_data.count
-	Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
+	if items_deleted > 0 then
+		Notify.info("Successfully removed %d trash items older than %d days", items_deleted, days)
+	else
+		Notify.info("No items found that are older than %d days", days)
+	end
 end
 
 local function cmd_delete_selection(config)
@@ -911,7 +912,10 @@ local function cmd_restore_selection(config)
 	-- Get trash file mappings from trash-list
 	local trash_mappings, mapping_err = get_trash_file_mappings()
 	if mapping_err then
-		Notify.error("Failed to get trash mappings: %s", mapping_err)
+		Notify.error(
+			"Failed to get trash mappings: %s. Try 'trash-list' manually to verify trash contents",
+			mapping_err
+		)
 		return
 	end
 
@@ -945,7 +949,7 @@ local function cmd_restore_selection(config)
 	end
 
 	if #restore_items == 0 then
-		Notify.error("No files found in trash for restoration")
+		Notify.info("No files to restore in current trash directory")
 		return
 	end
 
@@ -1040,7 +1044,7 @@ function M:entry(job)
 	elseif action == "empty" then
 		cmd_empty_trash(config)
 	else
-		Notify.error("Unknown action")
+		Notify.error("Unknown action '%s'. Valid actions: open, delete, restore, empty, emptyDays", tostring(action))
 	end
 end
 
