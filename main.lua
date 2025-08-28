@@ -1,4 +1,4 @@
--- ~/.config/yazi/plugins/recycle-bin/main.lua
+-- main.lua
 -- Trash management system for Yazi
 
 --=========== Plugin Settings =================================================
@@ -385,6 +385,77 @@ local function is_dir(url)
 end
 
 --=========== Trash helpers =================================================
+---Present a simple which‑key style selector and return the chosen item (Max: 36 options).
+---@param title string
+---@param items string[]
+---@return string|nil
+local function choose_which(title, items)
+	local keys = "1234567890abcdefghijklmnopqrstuvwxyz"
+	local candidates = {}
+	for i, item in ipairs(items) do
+		if i > #keys then
+			break
+		end
+		candidates[#candidates + 1] = { on = keys:sub(i, i), desc = item }
+	end
+
+	local idx = ya.which({ title = title, cands = candidates })
+	return idx and items[idx]
+end
+
+---Get available trash directories from trash-cli
+---@return string[], string|nil -- trash_dirs, error
+local function get_trash_directories()
+	local err, output = run_command("trash-list", { "--trash-dirs" }, nil, true)
+	if err then
+		return {}, err
+	end
+
+	local directories = {}
+	if output and output.stdout ~= "" then
+		for line in output.stdout:gmatch(PATTERNS.line_break) do
+			local trimmed = line:gsub("^%s*(.-)%s*$", "%1") -- trim whitespace
+			if trimmed ~= "" then
+				-- Ensure directory path ends with /
+				if not trimmed:match("/$") then
+					trimmed = trimmed .. "/"
+				end
+				table.insert(directories, trimmed)
+			end
+		end
+	end
+
+	debug("Found %d trash directories: %s", #directories, table.concat(directories, ", "))
+	return directories, nil
+end
+
+---Select trash directory from available options
+---@param directories string[] Array of trash directory paths
+---@return string|nil -- selected_directory
+local function select_trash_directory(directories)
+	if #directories == 0 then
+		return nil
+	end
+
+	-- If only one directory, use it automatically
+	if #directories == 1 then
+		debug("Using single trash directory: %s", directories[1])
+		return directories[1]
+	end
+
+	-- Multiple directories - present user with selection
+	debug("Multiple trash directories found, prompting user selection")
+	local selected_dir = choose_which("Select trash directory:", directories)
+
+	if selected_dir then
+		debug("User selected trash directory: %s", selected_dir)
+	else
+		debug("User cancelled trash directory selection")
+	end
+
+	return selected_dir
+end
+
 ---Get mapping of filenames to original paths from trash-list
 ---@return table<string, string>, string|nil -- filename_to_path_map, error
 local function get_trash_file_mappings()
@@ -423,6 +494,45 @@ local function check_has_trash_directory(config)
 		Notify.error("Trash directory not found: %s. Please check your configuration.", trash_dir)
 		return false
 	end
+
+	return true
+end
+
+---Ensure trash directory is set, prompting user if needed
+---@param config table
+---@return boolean -- true if trash directory is available, false if cancelled or error
+local function ensure_trash_directory(config)
+	-- If trash directory is already set and exists, we're good
+	if config.trash_dir and check_has_trash_directory(config) then
+		return true
+	end
+
+	-- Get available trash directories
+	local directories, dir_err = get_trash_directories()
+	if dir_err then
+		Notify.error(
+			"Failed to discover trash directories: %s. Try 'trash-list --trash-dirs' manually to verify trash directories",
+			dir_err
+		)
+		return false
+	end
+
+	if #directories == 0 then
+		Notify.error("No trash directories found. Please check trash-cli installation.")
+		return false
+	end
+
+	-- Let user select which trash directory to use
+	local selected_dir = select_trash_directory(directories)
+	if not selected_dir then
+		Notify.info("Trash directory selection cancelled")
+		return false
+	end
+
+	-- Save the selected trash directory to config for this session
+	config.trash_dir = selected_dir
+	set_state(STATE_KEY.CONFIG, config)
+	debug("Updated trash_dir for this session: %s", selected_dir)
 
 	return true
 end
@@ -595,22 +705,31 @@ end
 
 --=========== api actions =================================================
 local function cmd_open_trash(config)
-	local trash_files_dir = config.trash_dir .. "files"
-
-	-- Ensure the trash files directory exists
-	local trash_files_url = Url(trash_files_dir)
-	if not is_dir(trash_files_url) then
-		Notify.error("Trash files directory not found: %s", trash_files_dir)
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
 		return
 	end
 
-	-- Navigate to the trash files directory in Yazi
-	ya.emit("cd", { trash_files_url })
+	local trash_files_dir = config.trash_dir .. "files"
+	local trash_files_url = Url(trash_files_dir)
+
+	-- Go to trash files directory if exists, fallback to trash root if not
+	if is_dir(trash_files_url) then
+		ya.emit("cd", { trash_files_url })
+	else
+		local trash_root_url = Url(config.trash_dir)
+		if is_dir(trash_root_url) then
+			ya.emit("cd", { trash_root_url })
+			Notify.info("Trash files directory not found, navigated to trash root: %s", config.trash_dir)
+		else
+			Notify.error("Trash directory not found: %s", config.trash_dir)
+		end
+	end
 end
 
 local function cmd_empty_trash(config)
-	-- Check if trash directory exists
-	if not check_has_trash_directory(config) then
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
 		return
 	end
 
@@ -639,8 +758,8 @@ local function cmd_empty_trash(config)
 end
 
 local function cmd_empty_trash_by_days(config)
-	-- Check if trash directory exists
-	if not check_has_trash_directory(config) then
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
 		return
 	end
 
@@ -693,6 +812,16 @@ local function cmd_empty_trash_by_days(config)
 end
 
 local function cmd_delete_selection(config)
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
+		return
+	end
+
+	-- Check if current directory is within a valid trash directory
+	if not is_current_dir_in_trash() then
+		return
+	end
+
 	-- Validate selection and get filenames
 	local selected_paths, _ = validate_and_get_selection("deletion")
 	if not selected_paths then
@@ -732,6 +861,11 @@ local function cmd_delete_selection(config)
 end
 
 local function cmd_restore_selection(config)
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
+		return
+	end
+
 	-- Validate selection and get filenames
 	local selected_paths, _ = validate_and_get_selection("restoration")
 	if not selected_paths then
@@ -817,15 +951,11 @@ local function check_dependencies()
 	return true
 end
 
----Initialize the plugin, verify all dependencies
+---Initialize the plugin and verify dependencies
 local function init()
 	local initialized = get_state("is_initialized")
 	if not initialized then
 		if not check_dependencies() then
-			return false
-		end
-		local config = get_state(STATE_KEY.CONFIG)
-		if not check_has_trash_directory(config) then
 			return false
 		end
 		initialized = true
@@ -837,7 +967,7 @@ end
 --=========== Plugin start =================================================
 -- Default configuration
 local default_config = {
-	trash_dir = HOME .. "/.local/share/Trash/",
+	trash_dir = nil, -- Will be auto-discovered from trash-list --trash-dirs
 }
 
 ---Merges user‑provided configuration options into the defaults.
