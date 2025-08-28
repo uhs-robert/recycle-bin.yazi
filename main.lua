@@ -382,6 +382,21 @@ local function is_dir(url)
 end
 
 --=========== Trash helpers =================================================
+---Get the correct trash files directory path based on OS
+---@param config table Configuration object containing trash_dir and os
+---@return string -- trash_files_directory_path
+local function get_trash_files_dir(config)
+	local trash_files_dir = config.trash_dir
+	-- On Linux, trash files are in a 'files' subdirectory
+	if config.os ~= "macos" then
+		-- Ensure trash_dir ends with / before adding 'files'
+		if not trash_files_dir:match("/$") then
+			trash_files_dir = trash_files_dir .. "/"
+		end
+		trash_files_dir = trash_files_dir .. "files"
+	end
+	return trash_files_dir
+end
 ---Present a simple which‑key style selector and return the chosen item (Max: 36 options).
 ---@param title string
 ---@param items string[]
@@ -585,7 +600,7 @@ end
 ---@param config table
 ---@return string, string|nil -- size_string, error
 local function get_trash_size(config)
-	local trash_files_dir = config.trash_dir .. "files"
+	local trash_files_dir = get_trash_files_dir(config)
 
 	local err, output = run_command("du", { "-sh", trash_files_dir }, nil, true)
 	if err or not output or output.stdout == "" then
@@ -738,7 +753,7 @@ local function cmd_open_trash(config)
 		return
 	end
 
-	local trash_files_dir = config.trash_dir .. "files"
+	local trash_files_dir = get_trash_files_dir(config)
 	local trash_files_url = Url(trash_files_dir)
 
 	-- Go to trash files directory if exists, fallback to trash root if not
@@ -861,7 +876,11 @@ local function cmd_delete_selection(config)
 	end
 
 	-- Get file objects with sizes for confirmation dialog
-	local trash_files_dir = config.trash_dir .. "files/"
+	local trash_files_dir = get_trash_files_dir(config)
+	-- Ensure it ends with / for get_files_with_sizes
+	if not trash_files_dir:match("/$") then
+		trash_files_dir = trash_files_dir .. "/"
+	end
 	local file_objects = get_files_with_sizes(selected_paths, trash_files_dir)
 
 	-- Confirm deletion from trash with warning
@@ -921,7 +940,7 @@ local function cmd_restore_selection(config)
 
 	-- Prepare restore items with original paths and size information
 	local restore_items = {}
-	local trash_files_dir = config.trash_dir .. "files/"
+	local trash_files_dir = get_trash_files_dir(config)
 	local normalized_trash_files_dir = trash_files_dir
 	if not normalized_trash_files_dir:match("/$") then
 		normalized_trash_files_dir = normalized_trash_files_dir .. "/"
@@ -1008,6 +1027,7 @@ end
 -- Default configuration
 local default_config = {
 	trash_dir = nil, -- Will be auto-discovered from trash-list --trash-dirs
+	os = ya.target_os(),
 }
 
 ---Merges user‑provided configuration options into the defaults.

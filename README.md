@@ -13,9 +13,9 @@ Browse, restore, or permanently delete trashed files without leaving your termin
 
 > [!NOTE]
 >
-> **Linux Only**
+> **Cross-Platform Support**
 >
-> This plugin currently supports Linux only.
+> This plugin supports Linux and macOS systems.
 
 ## 🧠 What it does under the hood
 
@@ -32,10 +32,10 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 
 ## 📋 Requirements
 
-| Software  | Minimum     | Notes                                   |
-| --------- | ----------- | --------------------------------------- |
-| Yazi      | `>=25.5.31` | untested on 25.6+                       |
-| trash-cli | any         | `sudo dnf/apt/pacman install trash-cli` |
+| Software  | Minimum     | Notes                                              |
+| --------- | ----------- | -------------------------------------------------- |
+| Yazi      | `>=25.5.31` | untested on 25.6+                                  |
+| trash-cli | any         | **Linux**: `sudo dnf/apt/pacman install trash-cli`<br>**macOS**: `brew install trash-cli` |
 
 The plugin uses the following trash-cli commands: `trash-list`, `trash-empty`, `trash-restore`, and `trash-rm`.
 
@@ -56,14 +56,17 @@ require("recycle-bin"):setup()
 
 ## ⚙️ Configuration
 
-To customize plugin behavior, you may pass a config table to `setup()` (default settings are displayed):
+The plugin automatically discovers your system's trash directories using `trash-list --trash-dirs`. If you need to customize the behavior, you can pass a config table to `setup()`:
 
 ```lua
 require("recycle-bin"):setup({
-  -- Trash directory
-  trash_dir = "~/.local/share/Trash/",
+  -- Optional: Override automatic trash directory discovery
+  -- trash_dir = "~/.local/share/Trash/",  -- Uncomment to use specific directory
 })
 ```
+
+> [!NOTE]
+> The plugin supports multiple trash directories and will prompt you to choose which one to use if multiple are found.
 
 ## 🎹 Key Mapping
 
@@ -137,9 +140,11 @@ prepend_keymap = [
 
 **"Trash directory not found" error:**
 
-- The default trash directory is `~/.local/share/Trash/`
-- Create it manually if it doesn't exist: `mkdir -p ~/.local/share/Trash/{files,info}`
-- Or customize the path in your configuration
+- The plugin automatically discovers trash directories using `trash-list --trash-dirs`
+- If no directories are found, create the standard location:
+  - **Linux**: `mkdir -p ~/.local/share/Trash/{files,info}`
+  - **macOS**: `mkdir -p ~/.Trash`
+- You can also specify a custom path in your configuration
 
 **"No files selected" warning:**
 
