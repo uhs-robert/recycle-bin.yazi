@@ -498,6 +498,37 @@ local function check_has_trash_directory(config)
 	return true
 end
 
+--- Get and return string of the pwd/cwd
+---@return string -- the current working directory
+local get_cwd = ya.sync(function()
+	return tostring(cx.active.current.cwd)
+end)
+
+---Check if current working directory is within a valid trash directory
+---@return boolean -- true if in trash directory, false otherwise
+local is_current_dir_in_trash = function()
+	local current_dir = get_cwd()
+	local trash_dirs, dir_err = get_trash_directories()
+	if dir_err then
+		Notify.error(
+			"Failed to find trash directories: %s. Check trash-cli installation with 'trash-list --version'",
+			dir_err
+		)
+		return false
+	end
+
+	for _, trash_dir in ipairs(trash_dirs) do
+		if current_dir:find(trash_dir, 1, true) == 1 then
+			return true
+		end
+	end
+
+	Notify.error(
+		"This operation can only be performed from within a trash directory. Use 'open' action to navigate to trash first."
+	)
+	return false
+end
+
 ---Ensure trash directory is set, prompting user if needed
 ---@param config table
 ---@return boolean -- true if trash directory is available, false if cancelled or error
@@ -863,6 +894,11 @@ end
 local function cmd_restore_selection(config)
 	-- Ensure we have a trash directory selected
 	if not ensure_trash_directory(config) then
+		return
+	end
+
+	-- Check if current directory is within a valid trash directory
+	if not is_current_dir_in_trash() then
 		return
 	end
 
