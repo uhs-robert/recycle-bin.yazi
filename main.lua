@@ -171,6 +171,25 @@ local get_state = ya.sync(function(state, key)
 	return state[key]
 end)
 
+--- Get and return string of the pwd/cwd
+---@return string -- the current working directory
+local get_cwd = ya.sync(function()
+	return tostring(cx.active.current.cwd)
+end)
+
+---Get selected files from Yazi
+---@return string[]
+local get_selected_files = ya.sync(function()
+	local tab, paths = cx.active, {}
+	for _, u in pairs(tab.selected) do
+		paths[#paths + 1] = tostring(u)
+	end
+	if #paths == 0 and tab.current.hovered then
+		paths[1] = tostring(tab.current.hovered.url)
+	end
+	return paths
+end)
+
 --=========== Utils =================================================
 --- Deep merge two tables: overrides take precedence
 ---@param defaults table
@@ -235,6 +254,74 @@ local function create_ui_list(lines)
 		end
 	end
 	return ui.Text(line_objects):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
+end
+
+---Show a confirmation box.
+---@param title string|table Confirmation title (string or structured ui.Line)
+---@param body string|string[]|table? Confirmation body (string, string array, or structured ui.Text)
+---@param posOpts ui.Pos? A table of position options (e.g. {"center", w = 70, h = 40, x = 0, y = 0})
+---@return boolean
+local function confirm(title, body, posOpts)
+	local title_str = type(title) == "string" and title or tostring(title)
+	debug("Confirming user action for `%s`", title_str)
+	local pos = {
+		posOpts and posOpts[1] or "center",
+		w = posOpts and posOpts.w or 70,
+		h = posOpts and posOpts.h or 40,
+		x = posOpts and posOpts.x or 0,
+		y = posOpts and posOpts.y or 0,
+	}
+
+	local confirmation_data = {
+		title = type(title) == "string" and ui.Line(title) or title,
+		pos = pos,
+	}
+
+	if body then
+		-- Handle different body types
+		if type(body) == "string" then
+			confirmation_data.content = create_ui_list(body)
+			confirmation_data.body = create_ui_list(body)
+		elseif type(body) == "table" and body[1] and type(body[1]) == "string" then
+			-- Array of strings
+			confirmation_data.content = create_ui_list(body)
+			confirmation_data.body = create_ui_list(body)
+		else
+			-- Structured UI component (ui.Text)
+			confirmation_data.content = body
+			confirmation_data.body = body
+		end
+	end
+
+	local answer = ya.confirm(confirmation_data)
+	return answer
+end
+
+---Present a simple which‑key style selector and return the chosen item (Max: 36 options).
+---@param title string
+---@param items string[]
+---@return string|nil
+local function choose_which(title, items)
+	local keys = "1234567890abcdefghijklmnopqrstuvwxyz"
+	local candidates = {}
+	for i, item in ipairs(items) do
+		if i > #keys then
+			break
+		end
+		candidates[#candidates + 1] = { on = keys:sub(i, i), desc = item }
+	end
+
+	local idx = ya.which({ title = title, cands = candidates })
+	return idx and items[idx]
+end
+
+--============== File helpers ====================================
+---Check if a path exists and is a directory
+---@param url Url
+---@return boolean
+local function is_dir(url)
+	local cha, _ = fs.cha(url)
+	return cha and cha.is_dir or false
 end
 
 ---Get file size in bytes using fs.cha()
@@ -339,82 +426,7 @@ local function get_files_with_sizes(file_paths, base_dir)
 	return file_objects
 end
 
----Show a confirmation box.
----@param title string|table Confirmation title (string or structured ui.Line)
----@param body string|string[]|table? Confirmation body (string, string array, or structured ui.Text)
----@return boolean
-local function confirm(title, body)
-	local title_str = type(title) == "string" and title or tostring(title)
-	debug("Confirming user action for `%s`", title_str)
-
-	local confirmation_data = {
-		title = type(title) == "string" and ui.Line(title) or title,
-		pos = { "center", w = 70, h = 40 },
-	}
-
-	if body then
-		-- Handle different body types
-		if type(body) == "string" then
-			confirmation_data.content = create_ui_list(body)
-			confirmation_data.body = create_ui_list(body)
-		elseif type(body) == "table" and body[1] and type(body[1]) == "string" then
-			-- Array of strings
-			confirmation_data.content = create_ui_list(body)
-			confirmation_data.body = create_ui_list(body)
-		else
-			-- Structured UI component (ui.Text)
-			confirmation_data.content = body
-			confirmation_data.body = body
-		end
-	end
-
-	local answer = ya.confirm(confirmation_data)
-	return answer
-end
-
---============== File helpers ====================================
----Check if a path exists and is a directory
----@param url Url
----@return boolean
-local function is_dir(url)
-	local cha, _ = fs.cha(url)
-	return cha and cha.is_dir or false
-end
-
 --=========== Trash helpers =================================================
----Get the correct trash files directory path based on OS
----@param config table Configuration object containing trash_dir and os
----@return string -- trash_files_directory_path
-local function get_trash_files_dir(config)
-	local trash_files_dir = config.trash_dir
-	-- On Linux, trash files are in a 'files' subdirectory
-	if config.os ~= "macos" then
-		-- Ensure trash_dir ends with / before adding 'files'
-		if not trash_files_dir:match("/$") then
-			trash_files_dir = trash_files_dir .. "/"
-		end
-		trash_files_dir = trash_files_dir .. "files"
-	end
-	return trash_files_dir
-end
----Present a simple which‑key style selector and return the chosen item (Max: 36 options).
----@param title string
----@param items string[]
----@return string|nil
-local function choose_which(title, items)
-	local keys = "1234567890abcdefghijklmnopqrstuvwxyz"
-	local candidates = {}
-	for i, item in ipairs(items) do
-		if i > #keys then
-			break
-		end
-		candidates[#candidates + 1] = { on = keys:sub(i, i), desc = item }
-	end
-
-	local idx = ya.which({ title = title, cands = candidates })
-	return idx and items[idx]
-end
-
 ---Get available trash directories from trash-cli
 ---@return string[], string|nil -- trash_dirs, error
 local function get_trash_directories()
@@ -439,6 +451,41 @@ local function get_trash_directories()
 
 	debug("Found %d trash directories: %s", #directories, table.concat(directories, ", "))
 	return directories, nil
+end
+
+---Get the correct trash files directory path based on OS
+---@param config table Configuration object containing trash_dir and os
+---@return string -- trash_files_directory_path
+local function get_trash_files_dir(config)
+	local trash_files_dir = config.trash_dir
+	-- On Linux, trash files are in a 'files' subdirectory
+	if config.os ~= "macos" then
+		-- Ensure trash_dir ends with / before adding 'files'
+		if not trash_files_dir:match("/$") then
+			trash_files_dir = trash_files_dir .. "/"
+		end
+		trash_files_dir = trash_files_dir .. "files"
+	end
+	return trash_files_dir
+end
+
+---Verify trash dir exists
+---@param config table | nil
+local function check_has_trash_directory(config)
+	-- Get Config
+	if not config then
+		config = get_state(STATE_KEY.CONFIG)
+	end
+	-- Verify trash dir
+	local trash_dir = config.trash_dir
+	local trash_url = Url(trash_dir)
+
+	if not is_dir(trash_url) then
+		Notify.error("Trash directory not found: %s. Please check your configuration.", trash_dir)
+		return false
+	end
+
+	return true
 end
 
 ---Select trash directory from available options
@@ -466,79 +513,6 @@ local function select_trash_directory(directories)
 	end
 
 	return selected_dir
-end
-
----Get mapping of filenames to original paths from trash-list
----@return table<string, string>, string|nil -- filename_to_path_map, error
-local function get_trash_file_mappings()
-	local err, output = run_command("trash-list", {})
-	if err then
-		return {}, err
-	end
-
-	local mappings = {}
-	if output and output.stdout ~= "" then
-		for line in output.stdout:gmatch(PATTERNS.line_break) do
-			local timestamp, original_path = line:match(PATTERNS.trash_list)
-			if timestamp and original_path then
-				local filename = original_path:match(PATTERNS.filename) or original_path
-				mappings[filename] = original_path
-			end
-		end
-	end
-
-	debug("Created %d trash file mappings", #mappings)
-	return mappings, nil
-end
-
----Verify trash dir exists
----@param config table | nil
-local function check_has_trash_directory(config)
-	-- Get Config
-	if not config then
-		config = get_state(STATE_KEY.CONFIG)
-	end
-	-- Verify trash dir
-	local trash_dir = config.trash_dir
-	local trash_url = Url(trash_dir)
-
-	if not is_dir(trash_url) then
-		Notify.error("Trash directory not found: %s. Please check your configuration.", trash_dir)
-		return false
-	end
-
-	return true
-end
-
---- Get and return string of the pwd/cwd
----@return string -- the current working directory
-local get_cwd = ya.sync(function()
-	return tostring(cx.active.current.cwd)
-end)
-
----Check if current working directory is within a valid trash directory
----@return boolean -- true if in trash directory, false otherwise
-local is_current_dir_in_trash = function()
-	local current_dir = get_cwd()
-	local trash_dirs, dir_err = get_trash_directories()
-	if dir_err then
-		Notify.error(
-			"Failed to find trash directories: %s. Check trash-cli installation with 'trash-list --version'",
-			dir_err
-		)
-		return false
-	end
-
-	for _, trash_dir in ipairs(trash_dirs) do
-		if current_dir:find(trash_dir, 1, true) == 1 then
-			return true
-		end
-	end
-
-	Notify.error(
-		"This operation can only be performed from within a trash directory. Use 'open' action to navigate to trash first."
-	)
-	return false
 end
 
 ---Ensure trash directory is set, prompting user if needed
@@ -578,6 +552,115 @@ local function ensure_trash_directory(config)
 	debug("Updated trash_dir for this session: %s", selected_dir)
 
 	return true
+end
+
+---Get mapping of filenames to original paths from trash-list
+---@return table<string, string>, string|nil -- filename_to_path_map, error
+local function get_trash_file_mappings()
+	local err, output = run_command("trash-list", {})
+	if err then
+		return {}, err
+	end
+
+	local mappings = {}
+	if output and output.stdout ~= "" then
+		for line in output.stdout:gmatch(PATTERNS.line_break) do
+			local timestamp, original_path = line:match(PATTERNS.trash_list)
+			if timestamp and original_path then
+				local filename = original_path:match(PATTERNS.filename) or original_path
+				mappings[filename] = original_path
+			end
+		end
+	end
+
+	debug("Created %d trash file mappings", #mappings)
+	return mappings, nil
+end
+
+--- Go to the trash directory
+local function open_trash(config)
+	-- Ensure we have a trash directory selected
+	if not ensure_trash_directory(config) then
+		return
+	end
+
+	local trash_files_dir = get_trash_files_dir(config)
+	local trash_files_url = Url(trash_files_dir)
+
+	-- Go to trash files directory if exists, fallback to trash root if not
+	if is_dir(trash_files_url) then
+		ya.emit("cd", { trash_files_url })
+	else
+		local trash_root_url = Url(config.trash_dir)
+		if is_dir(trash_root_url) then
+			ya.emit("cd", { trash_root_url })
+			Notify.info("Trash files directory not found, navigated to trash root: %s", config.trash_dir)
+		else
+			Notify.error("Trash directory not found: %s", config.trash_dir)
+		end
+	end
+end
+
+---Offer to open trash directory when user attempts operations outside trash
+---@param config table
+---@return boolean -- true if user chose to navigate to trash and succeeded, false otherwise
+local function offer_to_open_trash(config)
+	local user_wants_to_navigate = confirm("Not in Trash Directory", {
+		"This command can only be run from within a Trash directory.",
+		"Would you like to open the Trash now?",
+	}, { w = 70, h = 10, x = 0, y = 0 })
+
+	if not user_wants_to_navigate then
+		Notify.info("Operation cancelled")
+		return false
+	end
+
+	-- Try to open trash directory
+	open_trash(config)
+
+	-- Check if we successfully navigated to a trash directory
+	local current_dir = get_cwd()
+	local trash_dirs, dir_err = get_trash_directories()
+	if dir_err then
+		Notify.error("Failed to verify navigation: %s", dir_err)
+		return false
+	end
+
+	for _, trash_dir in ipairs(trash_dirs) do
+		if current_dir:find(trash_dir, 1, true) == 1 then
+			return true
+		end
+	end
+
+	Notify.error("Failed to navigate to trash directory")
+	return false
+end
+
+---Check if current working directory is within a valid trash directory
+---If not, offer to navigate to trash directory
+---@param config table
+---@return boolean -- true if in trash directory or successfully navigated to trash, false otherwise
+local is_current_dir_in_trash = function(config)
+	local current_dir = get_cwd()
+	local trash_dirs, dir_err = get_trash_directories()
+	if dir_err then
+		Notify.error(
+			"Failed to find trash directories: %s. Check trash-cli installation with 'trash-list --version'",
+			dir_err
+		)
+		return false
+	end
+
+	-- Check if already in trash directory
+	for _, trash_dir in ipairs(trash_dirs) do
+		if current_dir:find(trash_dir, 1, true) == 1 then
+			return true
+		end
+	end
+
+	-- Not in trash directory - offer to navigate there
+	offer_to_open_trash(config)
+	return false
 end
 
 ---Get count of items in trash
@@ -640,20 +723,11 @@ local function get_trash_data(config)
 	}, nil
 end
 
---=========== File Selection =================================================
----Get selected files from Yazi
----@return string[]
-local get_selected_files = ya.sync(function()
-	local tab, paths = cx.active, {}
-	for _, u in pairs(tab.selected) do
-		paths[#paths + 1] = tostring(u)
 	end
-	if #paths == 0 and tab.current.hovered then
-		paths[1] = tostring(tab.current.hovered.url)
 	end
-	return paths
-end)
 
+
+--=========== File Selection =================================================
 ---Validates file selection and extracts filenames
 ---@param operation_name string The name of the operation (for logging/notifications)
 ---@return string[]|nil -- selected_paths
@@ -748,26 +822,7 @@ end
 
 --=========== api actions =================================================
 local function cmd_open_trash(config)
-	-- Ensure we have a trash directory selected
-	if not ensure_trash_directory(config) then
-		return
-	end
-
-	local trash_files_dir = get_trash_files_dir(config)
-	local trash_files_url = Url(trash_files_dir)
-
-	-- Go to trash files directory if exists, fallback to trash root if not
-	if is_dir(trash_files_url) then
-		ya.emit("cd", { trash_files_url })
-	else
-		local trash_root_url = Url(config.trash_dir)
-		if is_dir(trash_root_url) then
-			ya.emit("cd", { trash_root_url })
-			Notify.info("Trash files directory not found, navigated to trash root: %s", config.trash_dir)
-		else
-			Notify.error("Trash directory not found: %s", config.trash_dir)
-		end
-	end
+	open_trash(config)
 end
 
 local function cmd_empty_trash(config)
@@ -865,7 +920,7 @@ local function cmd_delete_selection(config)
 	end
 
 	-- Check if current directory is within a valid trash directory
-	if not is_current_dir_in_trash() then
+	if not is_current_dir_in_trash(config) then
 		return
 	end
 
@@ -918,7 +973,7 @@ local function cmd_restore_selection(config)
 	end
 
 	-- Check if current directory is within a valid trash directory
-	if not is_current_dir_in_trash() then
+	if not is_current_dir_in_trash(config) then
 		return
 	end
 
