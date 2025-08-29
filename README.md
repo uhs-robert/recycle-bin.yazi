@@ -25,8 +25,10 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 
 - **📂 Browse trash**: Navigate to trash directory directly in Yazi
 - **🔄 Restore files**: Bulk restore selected files from trash to their original locations
-- **🗑️ Empty trash**: Clear entire trash with confirmation dialog
-- **📅 Empty by days**: Remove trash items older than specified number of days
+  - **⚠️ Conflict resolution**: Intelligent handling when restored files already exist at destination
+  - **🛡️ Safety dialogs**: Preview conflicts with skip/overwrite options before restoration
+- **🗑️ Empty trash**: Clear entire trash with detailed file previews and confirmation dialog
+- **📅 Empty by days**: Remove trash items older than specified number of days with size information
 - **❌ Permanent delete**: Bulk delete selected files from trash permanently
 - **🔧 Configurable**: Customize trash directory
 
@@ -119,9 +121,13 @@ prepend_keymap = [
 
 1. **Navigate to trash**: Press `gt` or `Ro` to go directly to the trash directory
 2. **Restore files**: Select files in trash using Yazi's native selection and press `Rr` to restore them
+   - The plugin automatically detects conflicts when files already exist at the original location
+   - You'll be prompted to skip all or overwrite all conflicting files with detailed information
 3. **Delete permanently**: Select files in trash and press `Rd` to delete them permanently
-4. **Empty trash**: Press `Re` to empty the entire trash bin (with confirmation)
+4. **Empty trash**: Press `Re` to empty the entire trash bin
+   - Shows detailed file previews including names, sizes, and deletion dates before confirmation
 5. **Empty by age**: Press `RD` to empty trash items older than specified days (defaults to 30 days)
+   - Displays filtered list with file details and total size information
 
 > [!TIP]
 > Use Yazi's visual selection (`v` or `V` followed by `ESC` to select items) or toggle select (press `Space` on individual files) to select multiple files from the Trash before restoring or deleting
