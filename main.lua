@@ -577,6 +577,105 @@ local function get_trash_file_mappings()
 	return mappings, nil
 end
 
+---Get all files in trash with their sizes for display
+---@param config table Configuration object
+---@return {name: string, size: string}[], string|nil -- file_objects, error
+local function get_trash_files_with_sizes(config)
+	-- Get all files from trash-list
+	local err, output = run_command("trash-list", {})
+	if err then
+		return {}, err
+	end
+
+	local file_names = {}
+	if output and output.stdout ~= "" then
+		for line in output.stdout:gmatch(PATTERNS.line_break) do
+			local timestamp, original_path = line:match(PATTERNS.trash_list)
+			if timestamp and original_path then
+				local filename = original_path:match(PATTERNS.filename) or original_path
+				table.insert(file_names, filename)
+			end
+		end
+	end
+
+	if #file_names == 0 then
+		return {}, nil
+	end
+
+	-- Get file objects with sizes using existing function
+	local trash_files_dir = get_trash_files_dir(config)
+	local file_objects = get_files_with_sizes(file_names, trash_files_dir)
+
+	debug("Retrieved %d trash files with sizes", #file_objects)
+	return file_objects, nil
+end
+
+---Get trash files older than specified days with their sizes for display
+---@param config table Configuration object
+---@param days integer Number of days - files older than this will be included
+---@return {name: string, size: string, deleted_date: string}[], string|nil -- file_objects, error
+local function get_trash_files_older_than_days(config, days)
+	-- Get all files from trash-list
+	local err, output = run_command("trash-list", {})
+	if err then
+		return {}, err
+	end
+
+	-- Calculate cutoff time (days ago from now)
+	local current_time = os.time()
+	local cutoff_time = current_time - (days * 24 * 60 * 60) -- days * hours * minutes * seconds
+
+	local old_files = {}
+	if output and output.stdout ~= "" then
+		for line in output.stdout:gmatch(PATTERNS.line_break) do
+			local timestamp, original_path = line:match(PATTERNS.trash_list)
+			if timestamp and original_path then
+				-- Parse timestamp: "2025-08-28 20:27:38" format
+				local year, month, day, hour, min, sec = timestamp:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+				if year and month and day and hour and min and sec then
+					local file_time = os.time({
+						year = tonumber(year),
+						month = tonumber(month),
+						day = tonumber(day),
+						hour = tonumber(hour),
+						min = tonumber(min),
+						sec = tonumber(sec),
+					})
+
+					-- If file is older than cutoff, include it
+					if file_time < cutoff_time then
+						local filename = original_path:match(PATTERNS.filename) or original_path
+						table.insert(old_files, {
+							filename = filename,
+							deleted_date = timestamp,
+						})
+					end
+				end
+			end
+		end
+	end
+
+	if #old_files == 0 then
+		return {}, nil
+	end
+
+	-- Get file objects with sizes using existing function
+	local trash_files_dir = get_trash_files_dir(config)
+	local file_names = {}
+	for _, file_info in ipairs(old_files) do
+		table.insert(file_names, file_info.filename)
+	end
+	local file_objects = get_files_with_sizes(file_names, trash_files_dir)
+
+	-- Add deleted date information to file objects
+	for i, file_obj in ipairs(file_objects) do
+		file_obj.deleted_date = old_files[i].deleted_date
+	end
+
+	debug("Retrieved %d trash files older than %d days", #file_objects, days)
+	return file_objects, nil
+end
+
 --- Go to the trash directory
 local function open_trash(config)
 	-- Ensure we have a trash directory selected
@@ -1080,11 +1179,21 @@ local function cmd_empty_trash(config)
 		return
 	end
 
-	-- Show confirmation dialog with details
-	local body = string.format("Are you sure you want to delete these %d items (%s)?", data.count, data.size)
-	local confirmation = confirm("Empty Trash", body)
-	if not confirmation then
-		Notify.info("Empty trash cancelled")
+	-- Get all trash files with their sizes for detailed display
+	local file_objects, file_err = get_trash_files_with_sizes(config)
+	if file_err then
+		Notify.error("Failed to get trash file list: %s", file_err)
+		return
+	end
+
+	-- If no files found, show simple message
+	if #file_objects == 0 then
+		Notify.info("Trash is already empty")
+		return
+	end
+
+	-- Show detailed confirmation dialog with file list and sizes
+	if not confirm_batch_operation("permanently delete", file_objects, "This action cannot be undone!") then
 		return
 	end
 
@@ -1124,11 +1233,28 @@ local function cmd_empty_trash_by_days(config)
 		return
 	end
 
-	-- Show confirmation dialog
-	local body = string.format("Are you sure you want to delete all trash items older than %d days?", days)
-	local confirmation = confirm("Empty Trash by Days", body)
-	if not confirmation then
-		Notify.info("Empty trash by days cancelled")
+	-- Get files older than specified days with sizes and deletion dates
+	local file_objects, file_err = get_trash_files_older_than_days(config, days)
+	if file_err then
+		Notify.error("Failed to get trash file list: %s", file_err)
+		return
+	end
+
+	-- If no files found that are older than the specified days
+	if #file_objects == 0 then
+		Notify.info("No items found that are older than %d days", days)
+		return
+	end
+
+	-- Show detailed confirmation dialog with file list, sizes, and deletion dates
+	if
+		not confirm_batch_operation_with_dates(
+			"permanently delete",
+			file_objects,
+			days,
+			"This action cannot be undone!"
+		)
+	then
 		return
 	end
 
