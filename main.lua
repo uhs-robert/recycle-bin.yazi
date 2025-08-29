@@ -723,9 +723,188 @@ local function get_trash_data(config)
 	}, nil
 end
 
-	end
+--=========== Conflict Resolution =================================================
+---Handle restore conflicts by checking if files exist at original locations
+---@param restore_items table[] Array of restore items with original_path, filename, and size
+---@return table[] non_conflicted_items, table[] conflicted_items
+local function detect_restore_conflicts(restore_items)
+	local conflicts = {}
+	local non_conflicted_items = {}
+
+	for _, item in ipairs(restore_items) do
+		local original_url = Url(item.original_path)
+		local cha, _ = fs.cha(original_url)
+
+		if cha then -- File exists at original location
+			table.insert(conflicts, {
+				filename = item.filename,
+				original_path = item.original_path,
+				size = item.size,
+			})
+		else
+			table.insert(non_conflicted_items, item)
+		end
 	end
 
+	return non_conflicted_items, conflicts
+end
+
+---Create overwrite warning dialog and get user confirmation
+---@param conflicts table[] Array of conflicted items
+---@return boolean true if user confirms overwrite, false otherwise
+local function create_overwrite_warning_dialog(conflicts)
+	local overwrite_warning = {
+		"⚠️  DESTRUCTIVE ACTION WARNING ⚠️",
+		"",
+		"You are about to PERMANENTLY OVERWRITE existing files:",
+	}
+	for _, conflict in ipairs(conflicts) do
+		table.insert(overwrite_warning, string.format("  • %s", conflict.original_path))
+	end
+	table.insert(overwrite_warning, "")
+	table.insert(overwrite_warning, "The existing files will be LOST FOREVER!")
+	table.insert(overwrite_warning, "This action CANNOT BE UNDONE!")
+
+	-- Create warning dialog with red styling
+	local warning_components = {}
+	for i, line in ipairs(overwrite_warning) do
+		if i == 1 then
+			-- Main warning title in red
+			table.insert(warning_components, ui.Line(line):style(th.notify.title_error))
+		elseif line:match("^  •") then
+			-- File paths
+			table.insert(warning_components, ui.Line(line):style(th.notify.content))
+		elseif line:match("LOST FOREVER") or line:match("CANNOT BE UNDONE") then
+			-- Critical warnings in red
+			table.insert(warning_components, ui.Line(line):style(th.notify.title_error))
+		else
+			table.insert(warning_components, ui.Line(line))
+		end
+	end
+
+	local warning_body = ui.Text(warning_components):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
+	return confirm(" CONFIRM DESTRUCTIVE ACTION ", warning_body, { w = 80, h = 20, x = 0, y = 0 })
+end
+
+---Handle overwrite choice confirmation
+---@param conflicts table[] Array of conflicted items
+---@return string "cancel"|"overwrite" User's final choice for overwrite action
+local function handle_overwrite_choice(conflicts)
+	local confirmed = create_overwrite_warning_dialog(conflicts)
+	return confirmed and "overwrite" or "cancel"
+end
+
+---Present conflict resolution dialog to user and return their choice
+---@param conflicts table[] Array of conflicted items
+---@param non_conflicted_count integer Number of non-conflicted items
+---@return string "cancel"|"skip"|"overwrite" User's choice
+local function prompt_conflict_resolution(conflicts, non_conflicted_count)
+	if non_conflicted_count > 0 then
+		-- Offer choice between cancel, skip conflicts, or overwrite all
+		local choices = {
+			"Cancel restore",
+			"Skip conflicts and restore others",
+			"⚠️ Do not skip conflicts, restore ALL and OVERWRITE any conflicts",
+		}
+		local choice = choose_which("Resolve File Conflicts", choices)
+
+		if choice == "Cancel restore" then
+			return "cancel"
+		elseif choice == "Skip conflicts and restore others" then
+			return "skip"
+		elseif choice == "⚠️ Do not skip conflicts, restore ALL and OVERWRITE any conflicts" then
+			return handle_overwrite_choice(conflicts)
+		else
+			return "cancel" -- Default to cancel if no choice made
+		end
+	else
+		-- All files have conflicts - offer overwrite option
+		local choices = { "Cancel restore", "⚠️ Do not skip conflicts, restore ALL and OVERWRITE any conflicts" }
+		local choice = choose_which("All Files Have Conflicts", choices)
+
+		if choice == "⚠️ Do not skip conflicts, restore ALL and OVERWRITE any conflicts" then
+			return handle_overwrite_choice(conflicts)
+		else
+			return "cancel"
+		end
+	end
+end
+
+---Delete a single conflicting file or directory at its original location
+---@param original_path string The path to the conflicting file/directory
+---@return boolean success, string|nil error_message
+local function delete_conflict_file(original_path)
+	local original_url = Url(original_path)
+
+	-- Check if it's a file or directory to use the correct removal type
+	local cha, cha_err = fs.cha(original_url)
+	if not cha then
+		local error_msg =
+			string.format("Cannot access conflicting item %s: %s", original_path, cha_err or "unknown error")
+		return false, error_msg
+	end
+
+	local remove_type = cha.is_dir and "dir_all" or "file"
+	local delete_success, delete_err = fs.remove(remove_type, original_url)
+
+	if delete_success then
+		debug("Successfully deleted conflicting %s: %s", cha.is_dir and "directory" or "file", original_path)
+		return true, nil
+	else
+		local error_msg = string.format(
+			"Failed to delete existing %s %s: %s",
+			cha.is_dir and "directory" or "file",
+			original_path,
+			delete_err or "unknown error"
+		)
+		return false, error_msg
+	end
+end
+
+---Handle restore conflicts and return filtered items based on user choice
+---@param restore_items table[] Original restore items
+---@return table[]|nil filtered_items (nil if user cancelled)
+local function handle_restore_conflicts(restore_items)
+	local non_conflicted_items, conflicts = detect_restore_conflicts(restore_items)
+
+	-- No conflicts found, proceed with all items
+	if #conflicts == 0 then
+		return restore_items
+	end
+
+	-- Present conflict resolution dialog
+	local user_choice = prompt_conflict_resolution(conflicts, #non_conflicted_items)
+
+	if user_choice == "cancel" then
+		return nil
+	elseif user_choice == "skip" then
+		if #non_conflicted_items == 0 then
+			Notify.info("No files to restore after skipping all conflicts")
+			return nil
+		end
+		Notify.info("Skipping %d conflicted files, proceeding with %d files", #conflicts, #non_conflicted_items)
+		return non_conflicted_items
+	elseif user_choice == "overwrite" then
+		-- Mark items that need overwrite and return all items
+		-- The actual deletion will happen when user confirms the restore operation
+		Notify.info("Selected overwrite option for %d conflicting files", #conflicts)
+
+		-- Add overwrite metadata to restore items that have conflicts
+		for _, item in ipairs(restore_items) do
+			for _, conflict in ipairs(conflicts) do
+				if item.original_path == conflict.original_path then
+					item.needs_overwrite = true
+					break
+				end
+			end
+		end
+
+		return restore_items -- Return all items, with overwrite flags set
+	end
+
+	-- Fallback to cancel
+	return nil
+end
 
 --=========== File Selection =================================================
 ---Validates file selection and extracts filenames
@@ -745,7 +924,7 @@ end
 --=========== Batch Operations =================================================
 ---Shows standardized confirmation dialog for batch operations
 ---@param verb string Action verb (e.g., "delete", "restore")
----@param items {name: string, size: string}[] List of file objects with name and size
+---@param items {name: string, size: string, needs_overwrite: boolean?}[] List of file objects with name, size, and optional overwrite flag
 ---@param warning string|nil Optional warning message
 ---@return boolean
 local function confirm_batch_operation(verb, items, warning)
@@ -755,8 +934,71 @@ local function confirm_batch_operation(verb, items, warning)
 	local body_components = {}
 
 	-- Add each item as a formatted line with proper left alignment showing "fileName (size)"
+	-- Show overwrite warning for files that will overwrite existing files
+	local overwrite_count = 0
 	for _, item in ipairs(items) do
 		local display_text = string.format("%s (%s)", item.name, item.size)
+		if item.needs_overwrite then
+			overwrite_count = overwrite_count + 1
+			-- Mark files that will overwrite with warning styling
+			table.insert(
+				body_components,
+				ui.Line({
+					ui.Span("  ⚠️  "),
+					ui.Span(display_text .. " [WILL OVERWRITE]"),
+				}):style(th.notify.title_warn)
+			)
+		else
+			table.insert(body_components, ui.Line({ ui.Span("  "), ui.Span(display_text) }):align(ui.Align.LEFT))
+		end
+	end
+
+	-- Add overwrite warning if any files need overwriting
+	if overwrite_count > 0 then
+		table.insert(body_components, ui.Line(""))
+		table.insert(
+			body_components,
+			ui.Line(string.format("⚠️  %d existing file(s) will be permanently deleted!", overwrite_count))
+				:style(th.notify.title_error)
+		)
+	end
+
+	-- Add warning if provided with styling
+	if warning then
+		table.insert(body_components, ui.Line(""))
+		table.insert(body_components, ui.Line(warning):style(th.notify.title_warn))
+	end
+
+	local structured_body = ui.Text(body_components):align(ui.Align.LEFT):wrap(ui.Wrap.YES)
+	local confirmation = confirm(title, structured_body)
+	if not confirmation then
+		Notify.info(verb:gsub(PATTERNS.upper_first, string.upper) .. " cancelled")
+		return false
+	end
+
+	return true
+end
+
+---Shows confirmation dialog for batch operations with deletion dates
+---@param verb string Action verb (e.g., "delete")
+---@param items {name: string, size: string, deleted_date: string}[] List of file objects with name, size, and deletion date
+---@param days integer Number of days used for filtering
+---@param warning string|nil Optional warning message
+---@return boolean
+local function confirm_batch_operation_with_dates(verb, items, days, warning)
+	local title = string.format(
+		"%s the following %d file(s) older than %d days:",
+		verb:gsub(PATTERNS.upper_first, string.upper),
+		#items,
+		days
+	)
+
+	-- Create structured UI components for proper alignment and styling
+	local body_components = {}
+
+	-- Add each item as a formatted line showing "fileName (size) - deleted: date"
+	for _, item in ipairs(items) do
+		local display_text = string.format("%s (%s) - deleted: %s", item.name, item.size, item.deleted_date)
 		table.insert(body_components, ui.Line({ ui.Span("  "), ui.Span(display_text) }):align(ui.Align.LEFT))
 	end
 
@@ -1027,6 +1269,16 @@ local function cmd_restore_selection(config)
 		return
 	end
 
+	-- Handle potential conflicts at original file locations
+	local filtered_items = handle_restore_conflicts(restore_items)
+	if not filtered_items then
+		-- User cancelled or no valid items after conflict resolution
+		return
+	end
+
+	-- Update restore_items to use filtered list
+	restore_items = filtered_items
+
 	-- Confirm restoration
 	if not confirm_batch_operation("restore", restore_items, nil) then
 		return
@@ -1035,6 +1287,16 @@ local function cmd_restore_selection(config)
 	-- Create operation function for restore using original paths
 	local function restore_operation(item)
 		debug("Restoring %s from original path: %s", item.filename, item.original_path)
+
+		-- If this item needs overwrite, delete the existing file/directory first
+		if item.needs_overwrite then
+			local delete_success, delete_error = delete_conflict_file(item.original_path)
+			if not delete_success then
+				Notify.error(delete_error)
+				return delete_error
+			end
+		end
+
 		-- Use trash-restore with the original file path as argument and auto-select first match
 		local restore_err, _ = run_command("trash-restore", { item.original_path }, "0\n")
 		if restore_err then
