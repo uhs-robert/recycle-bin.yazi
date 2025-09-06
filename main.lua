@@ -190,6 +190,12 @@ local get_selected_files = ya.sync(function()
 	return paths
 end)
 
+---Clear the current selection in Yazi
+local function clear_selection()
+	-- Use Yazi's manager_emit to properly clear all selections
+	ya.manager_emit("select_all", { state = false })
+end
+
 --=========== Utils =================================================
 --- Deep merge two tables: overrides take precedence
 ---@param defaults table
@@ -735,12 +741,36 @@ local function offer_to_open_trash(config)
 	return false
 end
 
+---Resolve a path that might be a symlink to its real path using realpath command
+---@param path string The path to resolve
+---@return string -- The resolved path (or original if resolution fails)
+local function resolve_symlink(path)
+	-- Use realpath command to resolve symlinks
+	local err, output = run_command("realpath", {path}, nil, true)
+	
+	if not err and output and output.stdout then
+		-- Remove trailing newline and return resolved path
+		local resolved = output.stdout:gsub("[\r\n]+$", "")
+		if resolved ~= "" then
+			debug("Resolved symlink: %s -> %s", path, resolved)
+			return resolved
+		end
+	end
+	
+	-- If resolution failed, return original path
+	debug("Could not resolve symlink for %s, using original path", path)
+	return path
+end
+
 ---Check if current working directory is within a valid trash directory
 ---If not, offer to navigate to trash directory
 ---@param config table
 ---@return boolean -- true if in trash directory or successfully navigated to trash, false otherwise
 local is_current_dir_in_trash = function(config)
 	local current_dir = get_cwd()
+	-- Resolve symlinks in the current directory path
+	local resolved_dir = resolve_symlink(current_dir)
+	
 	local trash_dirs, dir_err = get_trash_directories()
 	if dir_err then
 		Notify.error(
@@ -750,9 +780,9 @@ local is_current_dir_in_trash = function(config)
 		return false
 	end
 
-	-- Check if already in trash directory
+	-- Check if already in trash directory (check both original and resolved paths)
 	for _, trash_dir in ipairs(trash_dirs) do
-		if current_dir:find(trash_dir, 1, true) == 1 then
+		if current_dir:find(trash_dir, 1, true) == 1 or resolved_dir:find(trash_dir, 1, true) == 1 then
 			return true
 		end
 	end
@@ -1330,6 +1360,11 @@ local function cmd_delete_selection(config)
 	local success_count, failed_count =
 		execute_batch_operation(selected_paths, "permanently deleting", delete_operation)
 
+	-- Clear selection after successful delete to prevent stale selections
+	if success_count > 0 then
+		clear_selection()
+	end
+
 	-- Report results
 	report_operation_results("deleting", success_count, failed_count)
 end
@@ -1435,6 +1470,11 @@ local function cmd_restore_selection(config)
 
 	-- Execute batch operation
 	local success_count, failed_count = execute_batch_operation(restore_items, "restoring", restore_operation)
+
+	-- Clear selection after successful restore to prevent stale selections
+	if success_count > 0 then
+		clear_selection()
+	end
 
 	-- Report results
 	report_operation_results("restoring", success_count, failed_count)
