@@ -28,6 +28,8 @@ desktop.ini
 *.db
 *.lock
 project-plan.md
+todo.md
+TODO.md
 
 # Compiled Lua sources
 luac.out
