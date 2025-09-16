@@ -746,8 +746,8 @@ end
 ---@return string -- The resolved path (or original if resolution fails)
 local function resolve_symlink(path)
 	-- Use realpath command to resolve symlinks
-	local err, output = run_command("realpath", {path}, nil, true)
-	
+	local err, output = run_command("realpath", { path }, nil, true)
+
 	if not err and output and output.stdout then
 		-- Remove trailing newline and return resolved path
 		local resolved = output.stdout:gsub("[\r\n]+$", "")
@@ -756,7 +756,7 @@ local function resolve_symlink(path)
 			return resolved
 		end
 	end
-	
+
 	-- If resolution failed, return original path
 	debug("Could not resolve symlink for %s, using original path", path)
 	return path
@@ -770,7 +770,7 @@ local is_current_dir_in_trash = function(config)
 	local current_dir = get_cwd()
 	-- Resolve symlinks in the current directory path
 	local resolved_dir = resolve_symlink(current_dir)
-	
+
 	local trash_dirs, dir_err = get_trash_directories()
 	if dir_err then
 		Notify.error(
@@ -1480,6 +1480,31 @@ local function cmd_restore_selection(config)
 	report_operation_results("restoring", success_count, failed_count)
 end
 
+local function cmd_show_menu(config)
+	local choice = ya.which({
+		title = "Recycle Bin Menu",
+		cands = {
+			{ on = "o", desc = "Open Trash" },
+			{ on = "r", desc = "Restore from Trash" },
+			{ on = "d", desc = "Delete from Trash" },
+			{ on = "e", desc = "Empty Trash" },
+			{ on = "D", desc = "Empty by Days" },
+		},
+	})
+
+	if choice == 1 then
+		cmd_open_trash(config)
+	elseif choice == 2 then
+		cmd_restore_selection(config)
+	elseif choice == 3 then
+		cmd_delete_selection(config)
+	elseif choice == 4 then
+		cmd_empty_trash(config)
+	elseif choice == 5 then
+		cmd_empty_trash_by_days(config)
+	end
+end
+
 --=========== init requirements ================================================
 ---Verify all dependencies
 local function check_dependencies()
@@ -1536,7 +1561,9 @@ function M:entry(job)
 	local action = job.args[1]
 
 	-- Pass config to functions that need it to avoid additional state calls
-	if action == "open" then
+	if action == "menu" or not action then
+		cmd_show_menu(config)
+	elseif action == "open" then
 		cmd_open_trash(config)
 	elseif action == "delete" then
 		cmd_delete_selection(config)
@@ -1547,7 +1574,10 @@ function M:entry(job)
 	elseif action == "empty" then
 		cmd_empty_trash(config)
 	else
-		Notify.error("Unknown action '%s'. Valid actions: open, delete, restore, empty, emptyDays", tostring(action))
+		Notify.error(
+			"Unknown action '%s'. Valid actions: menu, open, delete, restore, empty, emptyDays",
+			tostring(action)
+		)
 	end
 end
 

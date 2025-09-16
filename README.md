@@ -34,9 +34,9 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 
 ## 📋 Requirements
 
-| Software  | Minimum     | Notes                                              |
-| --------- | ----------- | -------------------------------------------------- |
-| Yazi      | `>=25.5.31` | untested on 25.6+                                  |
+| Software  | Minimum     | Notes                                                                                     |
+| --------- | ----------- | ----------------------------------------------------------------------------------------- |
+| Yazi      | `>=25.5.31` | untested on 25.6+                                                                         |
 | trash-cli | any         | **Linux**: `sudo dnf/apt/pacman install trash-cli`<br>**macOS**: `brew install trash-cli` |
 
 The plugin uses the following trash-cli commands: `trash-list`, `trash-empty`, `trash-restore`, and `trash-rm`.
@@ -72,62 +72,63 @@ require("recycle-bin"):setup({
 
 ## 🎹 Key Mapping
 
-Add the following to your `~/.config/yazi/keymap.toml`. You can customize keybindings to your preference.
+### 🗝️ Recommended: Preset
+
+Add this to your `~/.config/yazi/keymap.toml` (substitute `on  = ["R","b"]` with your keybind preference):
 
 ```toml
 [mgr]
 prepend_keymap = [
-  # Go to Trash directory
-  { on = [
-    "g",
-    "t",
-  ], run = "plugin recycle-bin open", desc = "Go to Trash" },
-
-  # Open the trash
-  { on = [
-    "R",
-    "o",
-  ], run = "plugin recycle-bin open", desc = "Open Trash" },
-
-  # Empty the trash
-  { on = [
-    "R",
-    "e",
-  ], run = "plugin recycle-bin empty", desc = "Empty Trash" },
-
-  # Delete selected items from trash
-  { on = [
-    "R",
-    "d",
-  ], run = "plugin recycle-bin delete", desc = "Delete from Trash" },
-
-  # Empty trash by days since deleted
-  { on = [
-    "R",
-    "D",
-  ], run = "plugin recycle-bin emptyDays", desc = "Empty by days deleted" },
-
-  # Restore selected items from trash
-  { on = [
-    "R",
-    "r",
-  ], run = "plugin recycle-bin restore", desc = "Restore from Trash" },
+  { on = ["R","b"], run = "plugin recycle-bin",              desc = "Open Recycle Bin menu" },
 ]
 ```
 
+The `R b` menu provides access to all trash management functions:
+
+- `o` → Open Trash
+- `r` → Restore from Trash
+- `d` → Delete from Trash
+- `e` → Empty Trash
+- `D` → Empty by Days
+
+> [!TIP]
+> `recycle-bin.yazi` uses the [array form for its keymap example](https://yazi-rs.github.io/docs/configuration/keymap).
+> You must pick **only one style** per file; mixing with `[[mgr.prepend_keymap]]` will fail.
+>
+> **Also note:** some plugins may suggest binding a bare key like `on = "R"`,
+> which blocks all `R <key>` chords (including `R b`). Change those to chords
+> (e.g. `["R","r"]`) or choose a different non-conflicting prefix.
+
+---
+
+### 🛠️ Alternative: Custom direct keybinds
+
+If you prefer direct keybinds, you may also set your own using our API. Here are the available options:
+
+```toml
+[mgr]
+prepend_keymap = [
+  { on = ["R","o"], run = "plugin recycle-bin -- open",        desc = "Open Trash" },
+  { on = ["R","e"], run = "plugin recycle-bin -- empty",       desc = "Empty Trash" },
+  { on = ["R","D"], run = "plugin recycle-bin -- emptyDays",   desc = "Empty by days deleted" },
+  { on = ["R","d"], run = "plugin recycle-bin -- delete",      desc = "Delete from Trash" },
+  { on = ["R","r"], run = "plugin recycle-bin -- restore",     desc = "Restore from Trash" },
+]
+```
+
+> [!IMPORTANT]
+> Remember that you are the only one who is responsible for managing and resolving your keybind conflicts.
+
 ## 🚀 Usage
 
-### Basic Operations
+### 📝 Example using the recommended preset
 
-1. **Navigate to trash**: Press `gt` or `Ro` to go directly to the trash directory
-2. **Restore files**: Select files in trash using Yazi's native selection and press `Rr` to restore them
-   - The plugin automatically detects conflicts when files already exist at the original location
-   - You'll be prompted to skip all or overwrite all conflicting files with detailed information
-3. **Delete permanently**: Select files in trash and press `Rd` to delete them permanently
-4. **Empty trash**: Press `Re` to empty the entire trash bin
-   - Shows detailed file previews including names, sizes, and deletion dates before confirmation
-5. **Empty by age**: Press `RD` to empty trash items older than specified days (defaults to 30 days)
-   - Displays filtered list with file details and total size information
+- **Recycle Bin Menu (`R b`):** Opens an interactive menu with all trash management options
+  - **Open Trash (`o`):** Navigate to trash directory directly in Yazi
+  - **Restore from Trash (`r`):** Bulk restore selected files from trash to their original locations. The plugin automatically detects conflicts when files already exist at the original location and prompts you to skip or overwrite conflicting files with detailed information.
+  - **Delete from Trash (`d`):** Permanently delete selected files from trash. Shows confirmation dialog before deletion.
+  - **Empty Trash (`e`):** Clear entire trash with detailed file previews including names, sizes, and deletion dates before confirmation.
+  - **Empty by Days (`D`):** Remove trash items older than specified number of days (defaults to 30 days). Displays filtered list with file details and total size information.
 
 > [!TIP]
 > Use Yazi's visual selection (`v` or `V` followed by `ESC` to select items) or toggle select (press `Space` on individual files) to select multiple files from the Trash before restoring or deleting
