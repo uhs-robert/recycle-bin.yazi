@@ -1,11 +1,23 @@
-# 🗑️ recycle-bin.yazi
+<p align="center">
+  <img
+    src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/1f5d1.svg"
+    width="128" height="128" alt="Trash emoji" />
+</p>
+<h1 align="center">recycle-bin.yazi</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Yazi](https://img.shields.io/badge/Yazi-25.5%2B-blue?style=for-the-badge)](https://github.com/sxyazi/yazi)
-[![GitHub stars](https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues-raw/uhs-robert/recycle-bin.yazi?style=for-the-badge)](https://github.com/uhs-robert/recycle-bin.yazi/issues)
+<p align="center">
+  <a href="https://github.com/uhs-robert/recycle-bin.yazi/stargazers"><img src="https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=skyblue&style=for-the-badge"></a>
+  <a href="https://github.com/sxyazi/yazi" target="_blank" rel="noopener noreferrer"><img alt="Yazi 0.25+" src="https://img.shields.io/badge/Yazi-0.25%2B-blue?style=for-the-badge&labelColor=192330" /></a>
+  <a href="https://github.com/uhs-robert/recycle-bin.yazi/issues"><img src="https://img.shields.io/github/issues/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=khaki&style=for-the-badge"></a>
+  <a href="https://github.com/uhs-robert/recycle-bin.yazi/contributors"><img src="https://img.shields.io/github/contributors/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=8FD1C7&style=for-the-badge"></a>
+  <a href="https://github.com/uhs-robert/recycle-bin.yazi/network/members"><img src="https://img.shields.io/github/forks/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=CFA7FF&style=for-the-badge"></a>
+</p>
 
-A fast, minimal **Recycle Bin** for the [Yazi](https://github.com/sxyazi/yazi) terminal file‑manager.
+<p align="center">
+A blazing fast, minimal **Recycle Bin** for the <a target="_blank" rel="noopener noreferrer" href="https://github.com/sxyazi/yazi">Yazi</a> terminal file‑manager.
+</p>
+
+## 🕶️ What does it do?
 
 Browse, restore, or permanently delete trashed files without leaving your terminal. Includes age-based cleanup and bulk actions.
 
