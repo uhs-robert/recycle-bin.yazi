@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-A blazing fast, minimal **Recycle Bin** for the <a target="_blank" rel="noopener noreferrer" href="https://github.com/sxyazi/yazi">Yazi</a> terminal file‑manager.
+A blazing fast, minimal <strong>Recycle Bin</strong> for the <a target="_blank" rel="noopener noreferrer" href="https://github.com/sxyazi/yazi">Yazi</a> terminal file‑manager.
 </p>
 
 ## 🕶️ What does it do?
