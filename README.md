@@ -6,14 +6,6 @@
 <h1 align="center">recycle-bin.yazi</h1>
 
 <p align="center">
-  <a href="https://github.com/uhs-robert/recycle-bin.yazi/stargazers"><img src="https://img.shields.io/github/stars/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=khaki&style=for-the-badge&cacheSeconds=4300"></a>
-  <a href="https://github.com/sxyazi/yazi" target="_blank" rel="noopener noreferrer"><img alt="Yazi 0.25+" src="https://img.shields.io/badge/Yazi-0.25%2B-blue?style=for-the-badge&cacheSeconds=4300&labelColor=192330" /></a>
-  <a href="https://github.com/uhs-robert/recycle-bin.yazi/issues"><img src="https://img.shields.io/github/issues/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=skyblue&style=for-the-badge&cacheSeconds=4300"></a>
-  <a href="https://github.com/uhs-robert/recycle-bin.yazi/contributors"><img src="https://img.shields.io/github/contributors/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=8FD1C7&style=for-the-badge&cacheSeconds=4300"></a>
-  <a href="https://github.com/uhs-robert/recycle-bin.yazi/network/members"><img src="https://img.shields.io/github/forks/uhs-robert/recycle-bin.yazi?colorA=192330&colorB=CFA7FF&style=for-the-badge&cacheSeconds=4300"></a>
-</p>
-
-<p align="center">
 A blazing fast, minimal <strong>Recycle Bin</strong> for the <a target="_blank" rel="noopener noreferrer" href="https://github.com/sxyazi/yazi">Yazi</a> terminal file‑manager.
 </p>
 
@@ -25,9 +17,9 @@ Browse, restore, or permanently delete trashed files without leaving your termin
 
 > [!NOTE]
 >
-> **Cross-Platform Support**
+> **Only macOS Support**
 >
-> This plugin supports Linux and macOS systems.
+> This version fixed the promblem on macOS systems.
 
 ## 🧠 What it does under the hood
 
@@ -49,9 +41,9 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 | Software  | Minimum     | Notes                                                                                     |
 | --------- | ----------- | ----------------------------------------------------------------------------------------- |
 | Yazi      | `>=25.5.31` | untested on 25.6+                                                                         |
-| trash-cli | any         | **Linux**: `sudo dnf/apt/pacman install trash-cli`<br>**macOS**: `brew install trash-cli` |
+| trash-cli | any         | <br>**macOS**: `brew tap walavave/tap`,`brew install walavave/tap/trash-cli` |
 
-The plugin uses the following trash-cli commands: `trash-list`, `trash-empty`, `trash-restore`, and `trash-rm`.
+The plugin uses the following trash-cli commands: `trash list`, `trash empty`, `trash restore`, and `trash rm`.
 
 ## 📦 Installation
 
