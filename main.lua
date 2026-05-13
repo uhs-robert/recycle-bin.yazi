@@ -7,6 +7,7 @@ local M = {}
 local PLUGIN_NAME = "recycle-bin"
 local USER_ID = ya.uid()
 local XDG_RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR") or ("/run/user/" .. USER_ID)
+local HOME_DIR = os.getenv("HOME") or ""
 
 --=========== Compiled Patterns (Performance Optimization) ==================
 -- Pre-compiled string patterns for better performance
@@ -144,6 +145,54 @@ local function run_command(cmd, args, input, is_silent)
   end
 
   return nil, output
+end
+
+---@param path string|nil
+---@return string|nil
+local function expand_home(path)
+  if type(path) ~= "string" or path == "" then return path end
+  if path == "~" then return HOME_DIR end
+  if path:sub(1, 2) == "~/" then return HOME_DIR .. path:sub(2) end
+  return path
+end
+
+---@param path string|nil
+---@return string|nil
+local function normalize_trash_dir(path)
+  path = expand_home(path)
+  if type(path) ~= "string" or path == "" then return path end
+  if not path:match("/$") then path = path .. "/" end
+  return path
+end
+
+---@param config table|nil
+---@return string|nil
+local function get_trash_root_dir(config)
+  return config and normalize_trash_dir(config.trash_dir) or nil
+end
+
+---@param subcommand string
+---@param args? string[]
+---@param input? string
+---@param is_silent? boolean
+---@param config? table
+---@return string|nil, Output|nil
+local function run_trash_command(subcommand, args, input, is_silent, config)
+  local trash_args = { subcommand }
+
+  local trash_dir = get_trash_root_dir(config)
+  if trash_dir then
+    table.insert(trash_args, "--trash-dir")
+    table.insert(trash_args, trash_dir)
+  end
+
+  if type(args) == "table" and #args > 0 then
+    for _, arg in ipairs(args) do
+      table.insert(trash_args, arg)
+    end
+  end
+
+  return run_command("trash", trash_args, input, is_silent)
 end
 
 --========= Sync helpers =======================================================
@@ -405,21 +454,17 @@ end
 
 --=========== Trash helpers =================================================
 ---Get available trash directories from trash-cli
+---@param config table|nil
 ---@return string[], string|nil -- trash_dirs, error
-local function get_trash_directories()
-  local err, output = run_command("trash-list", { "--trash-dirs" }, nil, true)
-  if err then return {}, err end
-
+local function get_trash_directories(config)
   local directories = {}
-  if output and output.stdout ~= "" then
-    for line in output.stdout:gmatch(PATTERNS.line_break) do
-      local trimmed = line:gsub("^%s*(.-)%s*$", "%1") -- trim whitespace
-      if trimmed ~= "" then
-        -- Ensure directory path ends with /
-        if not trimmed:match("/$") then trimmed = trimmed .. "/" end
-        table.insert(directories, trimmed)
-      end
-    end
+  local trash_dir = get_trash_root_dir(config)
+
+  if trash_dir then
+    directories[1] = trash_dir
+  elseif HOME_DIR ~= "" then
+    local default_dir = (config and config.os == "macos") and (HOME_DIR .. "/.Trash") or (HOME_DIR .. "/.local/share/Trash")
+    directories[1] = normalize_trash_dir(default_dir)
   end
 
   debug("Found %d trash directories: %s", #directories, table.concat(directories, ", "))
@@ -430,7 +475,7 @@ end
 ---@param config table Configuration object containing trash_dir and os
 ---@return string -- trash_files_directory_path
 local function get_trash_files_dir(config)
-  local trash_files_dir = config.trash_dir
+  local trash_files_dir = get_trash_root_dir(config)
   -- On Linux, trash files are in a 'files' subdirectory
   if config.os ~= "macos" then
     -- Ensure trash_dir ends with / before adding 'files'
@@ -446,7 +491,7 @@ local function check_has_trash_directory(config)
   -- Get Config
   if not config then config = get_state(STATE_KEY.CONFIG) end
   -- Verify trash dir
-  local trash_dir = config.trash_dir
+  local trash_dir = get_trash_root_dir(config)
   local trash_url = Url(trash_dir)
 
   if not is_dir(trash_url) then
@@ -490,10 +535,10 @@ local function ensure_trash_directory(config)
   if config.trash_dir and check_has_trash_directory(config) then return true end
 
   -- Get available trash directories
-  local directories, dir_err = get_trash_directories()
+  local directories, dir_err = get_trash_directories(config)
   if dir_err then
     Notify.error(
-      "Failed to discover trash directories: %s. Try 'trash-list --trash-dirs' manually to verify trash directories",
+      "Failed to discover trash directories: %s. Try 'trash list' manually to verify trash directories",
       dir_err
     )
     return false
@@ -519,10 +564,11 @@ local function ensure_trash_directory(config)
   return true
 end
 
----Get mapping of filenames to original paths from trash-list
+---Get mapping of filenames to original paths from trash list
+---@param config table|nil
 ---@return table<string, string>, string|nil -- filename_to_path_map, error
-local function get_trash_file_mappings()
-  local err, output = run_command("trash-list", {})
+local function get_trash_file_mappings(config)
+  local err, output = run_trash_command("list", {}, nil, true, config)
   if err then return {}, err end
 
   local mappings = {}
@@ -544,8 +590,8 @@ end
 ---@param config table Configuration object
 ---@return {name: string, size: string}[], string|nil -- file_objects, error
 local function get_trash_files_with_sizes(config)
-  -- Get all files from trash-list
-  local err, output = run_command("trash-list", {})
+  -- Get all files from trash list
+  local err, output = run_trash_command("list", {}, nil, true, config)
   if err then return {}, err end
 
   local file_names = {}
@@ -574,8 +620,8 @@ end
 ---@param days integer Number of days - files older than this will be included
 ---@return {name: string, size: string, deleted_date: string}[], string|nil -- file_objects, error
 local function get_trash_files_older_than_days(config, days)
-  -- Get all files from trash-list
-  local err, output = run_command("trash-list", {})
+  -- Get all files from trash list
+  local err, output = run_trash_command("list", {}, nil, true, config)
   if err then return {}, err end
 
   -- Calculate cutoff time (days ago from now)
@@ -643,12 +689,12 @@ local function open_trash(config)
   if is_dir(trash_files_url) then
     ya.emit("cd", { trash_files_url })
   else
-    local trash_root_url = Url(config.trash_dir)
+    local trash_root_url = Url(get_trash_root_dir(config))
     if is_dir(trash_root_url) then
       ya.emit("cd", { trash_root_url })
-      Notify.info("Trash files directory not found, navigated to trash root: %s", config.trash_dir)
+      Notify.info("Trash files directory not found, navigated to trash root: %s", get_trash_root_dir(config))
     else
-      Notify.error("Trash directory not found: %s", config.trash_dir)
+      Notify.error("Trash directory not found: %s", get_trash_root_dir(config))
     end
   end
 end
@@ -671,8 +717,8 @@ local function offer_to_open_trash(config)
   open_trash(config)
 
   -- Check if we successfully navigated to a trash directory
-  local current_dir = get_cwd()
-  local trash_dirs, dir_err = get_trash_directories()
+  local current_dir = normalize_trash_dir(get_cwd()) or get_cwd()
+  local trash_dirs, dir_err = get_trash_directories(config)
   if dir_err then
     Notify.error("Failed to verify navigation: %s", dir_err)
     return false
@@ -712,14 +758,15 @@ end
 ---@param config table
 ---@return boolean -- true if in trash directory or successfully navigated to trash, false otherwise
 local is_current_dir_in_trash = function(config)
-  local current_dir = get_cwd()
+  local current_dir_raw = get_cwd()
+  local current_dir = normalize_trash_dir(current_dir_raw) or current_dir_raw
   -- Resolve symlinks in the current directory path
-  local resolved_dir = resolve_symlink(current_dir)
+  local resolved_dir = normalize_trash_dir(resolve_symlink(current_dir_raw)) or resolve_symlink(current_dir_raw)
 
-  local trash_dirs, dir_err = get_trash_directories()
+  local trash_dirs, dir_err = get_trash_directories(config)
   if dir_err then
     Notify.error(
-      "Failed to find trash directories: %s. Check trash-cli installation with 'trash-list --version'",
+      "Failed to find trash directories: %s. Check trash installation with 'trash --version'",
       dir_err
     )
     return false
@@ -736,9 +783,10 @@ local is_current_dir_in_trash = function(config)
 end
 
 ---Get count of items in trash
+---@param config table|nil
 ---@return integer, string|nil -- count, error
-local function get_trash_item_count()
-  local err, output = run_command("trash-list", {})
+local function get_trash_item_count(config)
+  local err, output = run_trash_command("list", {}, nil, true, config)
   if err then return 0, err end
 
   local item_count = 0
@@ -771,7 +819,7 @@ local function get_trash_data(config)
   local size = "0M"
 
   -- Get trash info
-  local item_count, count_err = get_trash_item_count()
+  local item_count, count_err = get_trash_item_count(config)
   if count_err then
     return { count, size }, { type = "error", msg = string.format("Failed to get trash contents: %s", count_err) }
   end
@@ -1155,10 +1203,10 @@ local function cmd_empty_trash(config)
   -- Show detailed confirmation dialog with file list and sizes
   if not confirm_batch_operation("permanently delete", file_objects, "This action cannot be undone!") then return end
 
-  -- Execute trash-empty command
-  local err, _ = run_command("trash-empty", {}, "y\n")
+  -- Execute trash empty command
+  local err, _ = run_trash_command("empty", {}, "y\n", false, config)
   if err then
-    Notify.error("Failed to empty trash: %s. Try 'trash-empty' manually to debug", err)
+    Notify.error("Failed to empty trash: %s. Try 'trash empty' manually to debug", err)
     return
   end
   Notify.info("Trash emptied successfully (%d items, %s freed)", data.count, data.size)
@@ -1209,8 +1257,8 @@ local function cmd_empty_trash_by_days(config)
     return
   end
 
-  -- Execute trash-empty command with days parameter
-  local err, _ = run_command("trash-empty", { tostring(days) }, "y\n")
+  -- Execute trash empty command with days parameter
+  local err, _ = run_trash_command("empty", { tostring(days) }, "y\n", false, config)
   if err then
     Notify.error("Failed to empty trash by days: %s", err)
     return
@@ -1256,15 +1304,15 @@ local function cmd_delete_selection(config)
   local function delete_operation(path)
     local filename = path:match(PATTERNS.filename) or path
 
-    -- Use trash-rm with the filename as pattern
-    -- trash-rm uses fnmatch patterns, so we pass the filename directly
-    local delete_err, _ = run_command("trash-rm", { filename })
+    -- Use trash rm with the filename as pattern
+    -- trash rm uses fnmatch patterns, so we pass the filename directly
+    local delete_err, _ = run_trash_command("rm", { filename }, nil, false, config)
     if delete_err then
       Notify.error("Failed to delete %s: %s", filename, delete_err)
       return delete_err
-    else
-      return nil
     end
+
+    return nil
   end
 
   -- Execute batch operation
@@ -1288,10 +1336,10 @@ local function cmd_restore_selection(config)
   local selected_paths, _ = validate_and_get_selection("restoration")
   if not selected_paths then return end
 
-  -- Get trash file mappings from trash-list
-  local trash_mappings, mapping_err = get_trash_file_mappings()
+  -- Get trash file mappings from trash list
+  local trash_mappings, mapping_err = get_trash_file_mappings(config)
   if mapping_err then
-    Notify.error("Failed to get trash mappings: %s. Try 'trash-list' manually to verify trash contents", mapping_err)
+    Notify.error("Failed to get trash mappings: %s. Try 'trash list' manually to verify trash contents", mapping_err)
     return
   end
 
@@ -1353,8 +1401,8 @@ local function cmd_restore_selection(config)
       end
     end
 
-    -- Use trash-restore with the original file path as argument and auto-select first match
-    local restore_err, _ = run_command("trash-restore", { item.original_path }, "0\n")
+    -- Use trash restore with the original file path as argument and auto-select first match
+    local restore_err, _ = run_trash_command("restore", { item.original_path }, "0\n", false, config)
     if restore_err then
       Notify.error("Failed to restore %s: %s", item.name, restore_err)
       return restore_err
@@ -1402,10 +1450,10 @@ end
 ---Verify all dependencies
 local function check_dependencies()
   -- Check for trash-cli
-  local trashcli_err, _ = run_command("trash-list", { "--version" }, nil, true)
+  local trashcli_err, _ = run_command("trash", { "--version" }, nil, true)
   if trashcli_err then
     local path = os.getenv("PATH") or "(unset)"
-    Notify.error("trashcli not found. Is it installed and in PATH? PATH=" .. path)
+    Notify.error("trash not found. Is it installed and in PATH? PATH=" .. path)
     return false
   end
   return true
@@ -1425,7 +1473,7 @@ end
 --=========== Plugin start =================================================
 -- Default configuration
 local default_config = {
-  trash_dir = nil, -- Will be auto-discovered from trash-list --trash-dirs
+  trash_dir = nil, -- Will be auto-discovered from the OS default trash directory
   os = ya.target_os(),
 }
 
@@ -1433,6 +1481,7 @@ local default_config = {
 ---@param user_config table|nil
 local function set_plugin_config(user_config)
   local config = deep_merge(default_config, user_config or {})
+  config.trash_dir = normalize_trash_dir(config.trash_dir)
   set_state(STATE_KEY.CONFIG, config)
 end
 
