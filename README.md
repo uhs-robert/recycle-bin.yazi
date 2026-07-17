@@ -28,6 +28,8 @@ Browse, restore, or permanently delete trashed files without leaving your termin
 > **Cross-Platform Support**
 >
 > This plugin supports Linux and macOS systems.
+>
+> On macOS, this plugin uses trash-cli's Freedesktop-spec trash (`~/.local/share/Trash`), **not** the native Finder Trash (`~/.Trash`). trash-cli's maintainer has confirmed it will likely never support the proprietary macOS Trash. See [Configuration](#️-configuration) and [Key Mapping](#-key-mapping) for the required macOS setup.
 
 ## 🧠 What it does under the hood
 
@@ -52,6 +54,9 @@ This plugin serves as a wrapper for the [trash-cli](https://github.com/andreafra
 | trash-cli | any         | **Linux**: `sudo dnf/apt/pacman install trash-cli`<br>**macOS**: `brew install trash-cli` |
 
 The plugin uses the following trash-cli commands: `trash-list`, `trash-empty`, `trash-restore`, and `trash-rm`.
+
+> [!IMPORTANT]
+> **macOS only:** yazi's default delete action sends files to the native Finder Trash (`~/.Trash`), which trash-cli cannot read (see [Cross-Platform Support](#-what-does-it-do)). For this plugin to see files you delete, you must also rebind your delete key to trash-cli's own `trash-put` instead of yazi's built-in trash action — see [Key Mapping](#-key-mapping).
 
 ## 📦 Installation
 
@@ -131,6 +136,21 @@ prepend_keymap = [
 > [!IMPORTANT]
 > Remember that you are the only one who is responsible for managing and resolving your keybind conflicts.
 
+---
+
+### 🍎 macOS: Rebind Delete to trash-cli
+
+yazi's default `d`/`D` delete keys move files to the native Finder Trash (`~/.Trash`), which trash-cli cannot read. To keep deletes and this plugin pointed at the same trash, override delete on macOS to call `trash-put` directly:
+
+```toml
+[mgr]
+prepend_keymap = [
+  { on = "d", run = "shell 'trash-put \"$@\"' --confirm", desc = "Trash (trash-cli)" },
+]
+```
+
+This replaces yazi's built-in trash action with trash-cli's, so files land in `~/.local/share/Trash` where `recycle-bin.yazi` can browse, restore, and empty them. They will no longer appear in Finder's Trash.
+
 ## 🚀 Usage
 
 ### 📝 Example using the recommended preset
@@ -161,8 +181,7 @@ prepend_keymap = [
 
 - The plugin automatically discovers trash directories using `trash-list --trash-dirs`
 - If no directories are found, create the standard location:
-  - **Linux**: `mkdir -p ~/.local/share/Trash/{files,info}`
-  - **macOS**: `mkdir -p ~/.Trash`
+  - **Linux and macOS**: `mkdir -p ~/.local/share/Trash/{files,info}`
 - You can also specify a custom path in your configuration
 
 **"No files selected" warning:**

@@ -426,17 +426,15 @@ local function get_trash_directories()
   return directories, nil
 end
 
----Get the correct trash files directory path based on OS
----@param config table Configuration object containing trash_dir and os
+---Get the correct trash files directory path
+---@param config table Configuration object containing trash_dir
 ---@return string -- trash_files_directory_path
 local function get_trash_files_dir(config)
   local trash_files_dir = config.trash_dir
-  -- On Linux, trash files are in a 'files' subdirectory
-  if config.os ~= "macos" then
-    -- Ensure trash_dir ends with / before adding 'files'
-    if not trash_files_dir:match("/$") then trash_files_dir = trash_files_dir .. "/" end
-    trash_files_dir = trash_files_dir .. "files"
-  end
+  -- trash-cli follows the Freedesktop Trash spec on every OS it supports (including macOS),
+  -- so trash files always live in a 'files' subdirectory. Ensure trash_dir ends with / before adding 'files'.
+  if not trash_files_dir:match("/$") then trash_files_dir = trash_files_dir .. "/" end
+  trash_files_dir = trash_files_dir .. "files"
   return trash_files_dir
 end
 
@@ -1426,7 +1424,6 @@ end
 -- Default configuration
 local default_config = {
   trash_dir = nil, -- Will be auto-discovered from trash-list --trash-dirs
-  os = ya.target_os(),
 }
 
 ---Merges user‑provided configuration options into the defaults.
