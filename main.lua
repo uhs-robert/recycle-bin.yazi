@@ -1,4 +1,5 @@
 -- main.lua
+--- @since 26.8.15
 -- Trash management system for Yazi
 
 --=========== Plugin Settings =================================================
